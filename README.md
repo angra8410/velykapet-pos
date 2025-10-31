@@ -38,5 +38,8 @@ POS web-client + Google Apps Script backend para gestionar ventas e inventario d
 - Usa token simple o restringe acceso de Web App a cuentas concretas.
 - No publiques tokens en repositorios públicos.
 
+## TODO
+- revisar comportamiento del scanner en Android
+
 ## Licencia
 MIT
