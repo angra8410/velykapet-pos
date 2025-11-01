@@ -8,25 +8,34 @@
   <style>
     body {
       font-family: Arial, Helvetica, sans-serif;
-      margin: 12px;
-      color: #111;
+      margin: 0;
+      padding: 0;
       background: #fff;
     }
-    .container-main {
+    .main-wrap {
       max-width: 720px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
+      margin: 24px auto 0 auto;
+      padding: 0 12px;
+      display: block;
+    }
+    #video-box {
+      width: 100%;
+      background: #000;
+      border: 1px solid #ddd;
+      margin-bottom: 24px;
+      display: block;
+      position: relative;
+      height: 360px;
+      overflow: hidden;
     }
     #video {
       width: 100%;
-      height: 360px;
-      border: 1px solid #ddd;
+      height: 100%;
+      display: block;
       background: #000;
       object-fit: cover;
-      display: block;
-      margin: 0 0 16px 0;
+      position: relative;
+      z-index: 1;
     }
     #controls {
       display: flex;
@@ -34,7 +43,9 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      margin-bottom: 16px;
+      margin: 0 0 18px 0;
+      position: relative;
+      z-index: 2;
     }
     button {
       padding: 8px 12px;
@@ -43,14 +54,9 @@
     #status, #last, #log, footer {
       display: block;
       margin-bottom: 8px;
+      max-width: 720px;
     }
-    #last {
-      font-weight: 600;
-    }
-    .small {
-      font-size: 13px;
-      color: #666;
-    }
+    #last { font-weight: 600; }
     #log {
       padding: 8px;
       border: 1px solid #eee;
@@ -60,29 +66,27 @@
       font-family: monospace;
       font-size: 12px;
       white-space: pre-wrap;
-      margin-bottom: 12px;
     }
-    footer {
-      color: #666;
-      font-size: 13px;
-    }
+    footer { color: #666; font-size: 13px; }
   </style>
 </head>
 <body>
-  <h2>Escáner con cámara (QuaggaJS v1)</h2>
-  <div class="container-main">
-    <div id="video"></div>
+  <div class="main-wrap">
+    <h2>Escáner con cámara (QuaggaJS v1)</h2>
+    <div id="video-box">
+      <div id="video"></div>
+    </div>
     <div id="controls">
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
-      <label class="small">Tipo:
+      <label>Tipo:
         <select id="tipo">
           <option value="entrada">entrada (sumar)</option>
           <option value="venta" selected>venta (restar)</option>
           <option value="ajuste">ajuste</option>
         </select>
       </label>
-      <label class="small">Cantidad:
+      <label>Cantidad:
         <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px" />
       </label>
       <button id="beepBtn">Pitido ON</button>
