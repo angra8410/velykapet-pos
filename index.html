@@ -6,16 +6,77 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
-    #video-container { width: 100%; max-width: 720px; margin: 0 auto; }
-    #video { width:100%; height:360px; border:1px solid #ddd; background:#000; object-fit:cover; display:block; }
-    #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center; margin:18px auto 0 auto; max-width:720px; }
-    button { padding:8px 12px; font-size:14px; }
-    #status { margin-top:8px; color:#222; word-break:break-word; max-width:720px; margin-left:auto; margin-right:auto; }
-    #last { margin-top:6px; font-weight:600; max-width:720px; margin-left:auto; margin-right:auto; }
-    .small { font-size:13px; color:#666; }
-    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-width:720px; margin-left:auto; margin-right:auto; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
-    footer { margin-top:12px; color:#666; font-size:13px; max-width:720px; margin-left:auto; margin-right:auto; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 12px;
+      color: #111;
+      background: #fff;
+    }
+    #video-container {
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      display: block;
+    }
+    #video {
+      width: 100%;
+      height: 360px;
+      border: 1px solid #ddd;
+      background: #000;
+      object-fit: cover;
+      display: block;
+      margin: 0 auto;
+    }
+    /* CONTROLES DEBAJO DEL VIDEO */
+    #controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      margin: 18px auto 0 auto;
+      max-width: 720px;
+      position: static !important;
+    }
+    button {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    #status, #last, #log, footer {
+      max-width: 720px;
+      margin-left: auto;
+      margin-right: auto;
+      display: block;
+    }
+    #status {
+      margin-top: 8px;
+      color: #222;
+      word-break: break-word;
+    }
+    #last {
+      margin-top: 6px;
+      font-weight: 600;
+    }
+    .small {
+      font-size: 13px;
+      color: #666;
+    }
+    #log {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid #eee;
+      background: #fafafa;
+      max-height: 220px;
+      overflow: auto;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    footer {
+      margin-top: 12px;
+      color: #666;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -23,6 +84,7 @@
   <div id="video-container">
     <div id="video"></div>
   </div>
+  <!-- CONTROLES DEBAJO DEL VIDEO -->
   <div id="controls">
     <button id="startBtn">Iniciar cámara</button>
     <button id="stopBtn" disabled>Detener</button>
@@ -34,7 +96,7 @@
       </select>
     </label>
     <label class="small">Cantidad:
-      <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px"/>
+      <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px" />
     </label>
     <button id="beepBtn">Pitido ON</button>
   </div>
@@ -86,8 +148,8 @@
         g.connect(ctx.destination);
         o.start(0);
         g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
-        setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
-      } catch(e) { log('Audio error: ' + e); }
+        setTimeout(() => { o.stop(); ctx.close(); }, 150);
+      } catch (e) { log('Audio error: ' + e); }
     }
 
     async function postMovementForm(payload, attempts = 2) {
@@ -108,7 +170,7 @@
             cache: 'no-store'
           });
           const text = await res.text();
-          try { return JSON.parse(text); } catch(e) { return text; }
+          try { return JSON.parse(text); } catch (e) { return text; }
         } catch (err) {
           lastErr = err;
           log('POST error intento ' + i + ': ' + (err && err.toString ? err.toString() : err));
@@ -162,7 +224,7 @@
         },
         locate: true,
         numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
-      }, function(err) {
+      }, function (err) {
         if (err) { log('QuaggaJS init error: ' + JSON.stringify(err)); setStatus('Error QuaggaJS: ' + JSON.stringify(err)); return; }
         Quagga.start();
         quaggaStarted = true;
@@ -171,7 +233,7 @@
         stopBtn.disabled = false;
         log('QuaggaJS iniciado');
       });
-      Quagga.onDetected(function(result) {
+      Quagga.onDetected(function (result) {
         if (!result || !result.codeResult || !result.codeResult.code) return;
         const code = result.codeResult.code;
         log('Código detectado: ' + code + ' (' + result.codeResult.format + ')');
@@ -187,7 +249,7 @@
         startBtn.disabled = false;
         stopBtn.disabled = true;
         log('QuaggaJS detenido');
-        // Limpia el área de video para que no quede el placeholder gris con controles encima
+        // Limpia el área de video
         document.getElementById('video').innerHTML = '';
       }
     };
