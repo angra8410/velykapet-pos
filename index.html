@@ -3,24 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <title>Escáner QuaggaJS — Velykapet POS</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
-    /* ... estilos igual que antes ... */
-    body { font-family: Arial, Helvetica, sans-serif;margin:0;padding:0;background:#fff;}
-    .main-wrap { max-width: 720px; margin: 24px auto 0 auto; padding: 0 12px; display: block; }
-    h2 { text-align:center;margin-bottom:32px;font-size:2rem;font-weight:600;}
-    #video-box { width:100%; background:#000; border:1px solid #ddd; margin-bottom:24px; display:block; position:relative; height:360px; overflow:hidden; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.04);}
-    #video { width:100%; height:100%; display:block; background:#000; object-fit:cover; position:relative; z-index:1; border-radius:10px;}
-    #controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:center; margin:0 0 24px 0; position:relative; z-index:2; background:none;}
-    button { padding:8px 20px; font-size:15px; border:1px solid #bbb; border-radius:4px; background:#f7f7f7; cursor:pointer; transition:background 0.18s, border 0.18s;}
+    body { font-family: Arial, Helvetica, sans-serif; margin:0; padding:0; background:#fff;}
+    .main-wrap { max-width: 720px; margin: 24px auto 0 auto; padding: 0 12px; }
+    h2 { text-align:center; margin-bottom:32px; font-size:2rem; font-weight:600; }
+    #video-box { width:100%; background:#000; border:1px solid #ddd; margin-bottom:24px; height:360px; overflow:hidden; border-radius:10px;}
+    #video { width:100%; height:100%; display:block; background:#000; object-fit:cover; border-radius:10px;}
+    #controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:center; margin:0 0 24px 0;}
+    button { padding:8px 20px; font-size:15px; border:1px solid #bbb; border-radius:4px; background:#f7f7f7; cursor:pointer;}
     button:disabled { background:#eaeaea; color:#888; cursor:not-allowed; border-color:#eee;}
     label { font-size:14px; color:#333; font-weight:500; margin-right:8px; display:flex; align-items:center;}
     select, input[type="number"] { font-size:15px; padding:4px 8px; border-radius:4px; border:1px solid #ccc; margin-left:6px;}
-    #action-buttons { display:none; text-align:center; margin-top:18px; margin-bottom:12px; gap:16px;}
-    #action-buttons button { padding:10px 24px; font-size:15px; font-weight:600; border-radius:6px; border:1.5px solid #666; background:#e7e7e7; margin:0 8px;}
-    #status, #last, #log, footer { display:block; margin-bottom:10px; max-width:720px; margin-left:auto; margin-right:auto;}
-    #status { margin-top:12px; color:#222; word-break:break-word; font-size:16px;}
+    #action-buttons { display:none; flex-direction:row; justify-content:center; gap:24px; margin-bottom:16px; }
+    #action-buttons button { padding:10px 24px; font-size:15px; font-weight:600; border-radius:6px; border:1.5px solid #666; background:#e7e7e7;}
+    #status, #last, #log, footer { margin-bottom:10px; max-width:720px; margin-left:auto; margin-right:auto;}
+    #status { margin-top:12px; color:#222; font-size:16px;}
     #last { font-weight:600; font-size:15px;}
     #codes-list { padding:8px; background:#f5f5f5; border-radius:6px; margin-bottom:14px; font-size:14px; max-height:90px; overflow-y:auto; font-family:monospace;}
     #log { padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:13px; white-space:pre-wrap; border-radius:6px;}
@@ -48,6 +47,7 @@
       </label>
       <button id="beepBtn">Pitido ON</button>
     </div>
+    <!-- Botones de acción aparecen tras leer código -->
     <div id="action-buttons">
       <button id="nextCodeBtn">Leer otro código</button>
       <button id="finishBtn">Finalizar lectura</button>
@@ -56,12 +56,9 @@
     <div id="status">Estado: detenido</div>
     <div id="last">Último barcode: <span id="lastCode">—</span></div>
     <div id="log"></div>
-    <footer>
-      Nota: Si hay error, se mostrará en el log.
-    </footer>
+    <footer>Nota: Si hay error, se mostrará en el log.</footer>
   </div>
   <script>
-    // ... igual que antes, pero con más readers y resolución baja ...
     const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
     const TOKEN = '';
     const logEl = document.getElementById('log');
@@ -76,10 +73,7 @@
     function setLast(code) { document.getElementById('lastCode').textContent = code; }
     function renderCodesList() {
       const el = document.getElementById('codes-list');
-      if (!scannedCodes.length) {
-        el.innerHTML = '';
-        return;
-      }
+      if (!scannedCodes.length) { el.innerHTML = ''; return; }
       el.innerHTML = '<strong>Códigos leídos:</strong><br>' + scannedCodes.map((c, i) => (i+1)+'. '+c).join('<br>');
     }
     const startBtn = document.getElementById('startBtn');
@@ -106,10 +100,8 @@
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const o = ctx.createOscillator();
         const g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = 1000;
-        o.connect(g);
-        g.connect(ctx.destination);
+        o.type = 'sine'; o.frequency.value = 1000;
+        o.connect(g); g.connect(ctx.destination);
         o.start(0);
         g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
         setTimeout(() => { o.stop(); ctx.close(); }, 150);
@@ -119,20 +111,12 @@
     async function postMovementForm(payload, attempts = 2) {
       const url = WEBAPP_URL;
       const params = new URLSearchParams();
-      for (const k in payload) {
-        if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) {
-          params.append(k, String(payload[k]));
-        }
-      }
+      for (const k in payload) if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) params.append(k, String(payload[k]));
       let lastErr = null;
       for (let i = 1; i <= attempts; i++) {
         try {
           log('POST intento ' + i + ' a ' + url);
-          const res = await fetch(url, {
-            method: 'POST',
-            body: params,
-            cache: 'no-store'
-          });
+          const res = await fetch(url, { method: 'POST', body: params, cache: 'no-store' });
           const text = await res.text();
           try { return JSON.parse(text); } catch (e) { return text; }
         } catch (err) {
@@ -158,9 +142,7 @@
       } catch (err) {
         log('Todos los intentos fallaron: ' + err);
         setStatus('Error enviando: ' + err);
-      } finally {
-        sending = false;
-      }
+      } finally { sending = false; }
     }
 
     function handleDetectedCode(code, format) {
@@ -181,7 +163,7 @@
       renderCodesList();
       setStatus('Código leído: ' + code + ' (' + format + '). Confirma si quieres continuar.');
       waitingForUser = true;
-      actionButtonsEl.style.display = 'flex';
+      actionButtonsEl.style.display = 'flex'; // <-- Aquí se muestran los botones tras leer el código
     }
 
     startBtn.onclick = () => {
@@ -192,7 +174,7 @@
           target: document.querySelector('#video'),
           constraints: {
             facingMode: "environment",
-            width: { ideal: 640 },         // Menor resolución para móviles
+            width: { ideal: 640 },
             height: { ideal: 480 }
           }
         },
@@ -227,7 +209,6 @@
         const code = result.codeResult.code;
         const format = result.codeResult.format;
         log('Intento de lectura: ' + code + ' (' + format + ')');
-        // Puedes filtrar por formato aquí si quieres solo EAN13, pero ahora acepta varios
         handleDetectedCode(code, format);
       });
     };
