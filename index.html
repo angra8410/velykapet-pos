@@ -3,54 +3,67 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Scanner diagnóstico — Velykapet POS</title>
+  <title>Scanner cámara — Velykapet POS</title>
 
-  <!-- Intentar cargar ZXing desde varios CDN (jsDelivr, unpkg) -->
+  <!--
+    Loader tolerante de ZXing: intenta varios CDNs y, si todos fallan,
+    muestra instrucciones claras en la UI. Si quieres la versión
+    totalmente embebida (sin depender de CDNs), dime y la genero
+    (archivo mucho más grande).
+  -->
   <script>
   (function loadZXing(cb) {
     var urls = [
+      // intentamos sin versión (más probable que exista)
       'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
-      'https://unpkg.com/@zxing/browser/umd/index.min.js'
+      'https://unpkg.com/@zxing/browser/umd/index.min.js',
+      // fallback alternativo (si alguna vez agregan otros mirrors)
     ];
     function tryLoad(i) {
       if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
       var s = document.createElement('script');
       s.src = urls[i];
-      s.onload = function(){ console.log('ZXing loaded from', urls[i]); cb(null); };
+      s.onload = function(){ console.log('ZXing loaded from', urls[i]); cb(null, urls[i]); };
       s.onerror = function(){ console.warn('Failed to load ZXing from', urls[i]); tryLoad(i+1); };
       document.head.appendChild(s);
     }
     tryLoad(0);
-  })(function(err){
+  })(function(err, url) {
     if (err) {
-      console.error('ZXing library could not be loaded from CDNs. Please check network or try alternative CDN.');
-      var log = document.getElementById && document.getElementById('log');
-      if (log) log.innerText += '\nERROR: ZXing library not loaded. Abre en el navegador: https://unpkg.com/@zxing/browser/umd/index.min.js';
+      console.error('ZXing library could not be loaded from CDNs. Please check network or request an embedded build.');
+      window.__ZXING_LOADED = false;
     } else {
-      console.log('ZXing available:', !!(window.ZXingBrowser || window.ZXing));
+      window.__ZXING_LOADED = true;
+      window.__ZXING_SRC = url;
+      console.log('ZXing is available:', !!(window.ZXingBrowser || window.ZXing));
     }
   });
   </script>
 
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; }
+    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
     #video-container { width: 100%; max-width: 720px; margin: 0 auto; display:flex; flex-direction:column; gap:8px; }
-    #video { width:100%; height:auto; border:1px solid #ddd; background:#000; }
-    #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    #video { width:100%; height:360px; border:1px solid #ddd; background:#000; object-fit:cover; }
+    #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
     button { padding:8px 12px; font-size:14px; }
     #status { margin-top:8px; color:#222; word-break:break-word; }
     #last { margin-top:6px; font-weight:600; }
     .small { font-size:13px; color:#666; }
     #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:200px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
+    .warning { color:#b45; font-weight:600; }
+    footer { margin-top:18px; font-size:13px; color:#666; }
   </style>
 </head>
 <body>
-  <h2>Escáner diagnóstico (mobile)</h2>
+  <h2>Escáner con cámara (mobile)</h2>
+
   <div id="video-container">
     <video id="video" autoplay muted playsinline></video>
+
     <div id="controls">
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
+
       <label class="small">Tipo:
         <select id="tipo">
           <option value="entrada">entrada (sumar)</option>
@@ -58,9 +71,11 @@
           <option value="ajuste">ajuste</option>
         </select>
       </label>
+
       <label class="small">Cantidad:
         <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px"/>
       </label>
+
       <button id="beepBtn">Pitido ON</button>
     </div>
 
@@ -69,19 +84,30 @@
     <div id="log"></div>
   </div>
 
+  <footer>
+    Nota: la página intentará cargar la librería ZXing desde CDNs. Si tu red o el navegador
+    bloquea la carga, verás un mensaje en el log con instrucciones. Si quieres la versión
+    totalmente embebida (sin depender de CDNs), indícame y la genero para que la subas.
+  </footer>
+
   <script>
   // CONFIGURA AQUÍ:
-  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- reemplaza con tu Web App URL
-  const TOKEN = ''; // <-- reemplaza si usas token
+  // Reemplaza la URL por la de tu Web App (la que termina en /exec)
+  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- REEMPLAZA
+  const TOKEN = ''; // si usas EXPECTED_TOKEN en config.gs ponlo aquí
 
+  // Helpers UI
   const logEl = document.getElementById('log');
-  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\\n'; logEl.scrollTop = logEl.scrollHeight; } }
+  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
+  // Feature detection
   const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   log('getUserMedia supported: ' + hasGetUserMedia);
+  log('ZXing loaded flag: ' + (window.__ZXING_LOADED === true ? 'yes, from ' + window.__ZXING_SRC : 'no'));
 
+  // Elements
   const videoEl = document.getElementById('video');
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
@@ -108,9 +134,12 @@
       o.start(0);
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
       setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
-    } catch(e) { log('Audio error: ' + e); }
+    } catch(e) {
+      log('Audio error: ' + e);
+    }
   }
 
+  // Safe getter for ZXing constructor
   function getBrowserMultiFormatReader() {
     const ns = window.ZXingBrowser || window.ZXing;
     if (!ns) return null;
@@ -124,7 +153,9 @@
       log('Aborting: getUserMedia not supported');
       return;
     }
-    setStatus('solicitando cámara...');
+
+    setStatus('Solicitando cámara...');
+    // Quick permission test to trigger the prompt
     try {
       const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       if (tmp && tmp.getTracks) tmp.getTracks().forEach(t => t.stop());
@@ -132,13 +163,18 @@
     } catch (err) {
       log('getUserMedia error: ' + (err && err.message ? err.message : err));
       setStatus('Error getUserMedia: ' + (err && err.message ? err.message : err));
+      // If permission denied, instruct user to allow camera via site settings
+      if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+        log('Permisos: revisa Configuración del sitio → Cámara → Allow');
+      }
       return;
     }
 
+    // Ensure ZXing is available
     const BrowserMultiFormatReader = getBrowserMultiFormatReader();
     if (!BrowserMultiFormatReader) {
-      log('ZXing lib not found on window. Check CDN or adblock.');
-      setStatus('ZXing no cargado. Abre en el navegador: https://unpkg.com/@zxing/browser/umd/index.min.js');
+      log('ZXing library not available. If you see this, the CDNs failed to load.');
+      setStatus('ZXing no cargado. Revisa el log y prueba abrir: https://unpkg.com/@zxing/browser/umd/index.min.js');
       return;
     }
 
@@ -148,7 +184,9 @@
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter(d => d.kind === 'videoinput');
       log('video inputs: ' + videoInputs.map(d => d.label || d.deviceId).join(', '));
-      const back = videoInputs.find(d => /back|rear|traseira|trasero/i.test(d.label)) || videoInputs[0];
+
+      // Prefer rear camera if label contains common words, fallback to the first
+      const back = videoInputs.find(d => /back|rear|traseira|trasero|environment/i.test(d.label)) || videoInputs[0];
       const selectedId = back ? back.deviceId : (videoInputs[0] && videoInputs[0].deviceId);
       if (!selectedId) { setStatus('No se encontró dispositivo de video'); log('No video deviceId'); return; }
 
@@ -159,6 +197,7 @@
           console.debug('ZXing err', err);
         }
       });
+
       setStatus('Cámara activa. Apunta al código.');
       startBtn.disabled = true;
       stopBtn.disabled = false;
@@ -185,11 +224,14 @@
     lastScanned = code; lastTime = now;
     setLast(code);
     playBeep();
+
     const cantidad = Number(cantidadEl.value) || 1;
     const tipo = tipoEl.value || 'entrada';
     const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
+
     log('Enviando payload: ' + JSON.stringify(payload));
     setStatus('Enviando ' + code + ' ...');
+
     fetch(WEBAPP_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
       .then(r => r.json())
       .then(j => {
@@ -197,14 +239,17 @@
         setStatus('Respuesta: ' + (j && j.ok ? 'OK' : 'ERROR'));
       })
       .catch(e => {
-        log('Fetch error: ' + e); setStatus('Error enviando: ' + e);
+        log('Fetch error: ' + e);
+        setStatus('Error enviando: ' + e);
       });
   }
 
+  // UI bindings
   startBtn.addEventListener('click', startScanner);
   stopBtn.addEventListener('click', stopScanner);
   beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
+  // Diagnostic console message
   console.log('diagnostic loaded: getUserMedia=' + hasGetUserMedia + ' ZXing=' + !!(window.ZXingBrowser || window.ZXing));
   </script>
 </body>
