@@ -6,18 +6,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
-    body {
-      font-family: Arial, Helvetica, sans-serif;
-      margin: 12px;
-      color: #111;
-      background: #fff;
-    }
-    #video-container {
-      width: 100%;
-      max-width: 720px;
-      margin: 0 auto;
-      display: block;
-    }
+    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; background: #fff;}
+    #video-container { width: 100%; max-width: 720px; margin: 0 auto; }
     #video {
       width: 100%;
       height: 360px;
@@ -26,8 +16,8 @@
       object-fit: cover;
       display: block;
       margin: 0 auto;
+      position: static !important;
     }
-    /* CONTROLES DEBAJO DEL VIDEO */
     #controls {
       display: flex;
       gap: 8px;
@@ -37,51 +27,14 @@
       margin: 18px auto 0 auto;
       max-width: 720px;
       position: static !important;
+      z-index: 10;
+      background: none;
     }
-    button {
-      padding: 8px 12px;
-      font-size: 14px;
-    }
-    #status, #last, #log, footer {
-      max-width: 720px;
-      margin-left: auto;
-      margin-right: auto;
-      display: block;
-    }
-    #status {
-      margin-top: 8px;
-      color: #222;
-      word-break: break-word;
-    }
-    #last {
-      margin-top: 6px;
-      font-weight: 600;
-    }
-    .small {
-      font-size: 13px;
-      color: #666;
-    }
-    #log {
-      margin-top: 8px;
-      padding: 8px;
-      border: 1px solid #eee;
-      background: #fafafa;
-      max-height: 220px;
-      overflow: auto;
-      font-family: monospace;
-      font-size: 12px;
-      white-space: pre-wrap;
-    }
-    footer {
-      margin-top: 12px;
-      color: #666;
-      font-size: 13px;
-    }
+    button { padding: 8px 12px; font-size: 14px; }
   </style>
 </head>
 <body>
   <h2>Escáner con cámara (QuaggaJS v1)</h2>
-  <!-- SOLO el video aquí -->
   <div id="video-container">
     <div id="video"></div>
   </div>
@@ -89,115 +42,21 @@
   <div id="controls">
     <button id="startBtn">Iniciar cámara</button>
     <button id="stopBtn" disabled>Detener</button>
-    <label class="small">Tipo:
+    <label>Tipo:
       <select id="tipo">
         <option value="entrada">entrada (sumar)</option>
         <option value="venta" selected>venta (restar)</option>
         <option value="ajuste">ajuste</option>
       </select>
     </label>
-    <label class="small">Cantidad:
+    <label>Cantidad:
       <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px" />
     </label>
     <button id="beepBtn">Pitido ON</button>
   </div>
-  <div id="status">Estado: detenido</div>
-  <div id="last">Último barcode: <span id="lastCode">—</span></div>
-  <div id="log"></div>
-  <footer>
-    Nota: Si hay error, se mostrará en el log.
-  </footer>
   <script>
-    const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
-    const TOKEN = '';
-    const logEl = document.getElementById('log');
-    function log(msg) {
-      if (logEl) {
-        logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n';
-        logEl.scrollTop = logEl.scrollHeight;
-      }
-      console.log(msg);
-    }
-    function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
-    function setLast(code) { document.getElementById('lastCode').textContent = code; }
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const tipoEl = document.getElementById('tipo');
-    const cantidadEl = document.getElementById('cantidad');
-    const beepBtn = document.getElementById('beepBtn');
-    let beepOn = true;
-    let sending = false;
-    let lastScanned = null;
-    let lastTime = 0;
-    const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
-    function playBeep() {
-      if (!beepOn) return;
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = 1000;
-        o.connect(g);
-        g.connect(ctx.destination);
-        o.start(0);
-        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
-        setTimeout(() => { o.stop(); ctx.close(); }, 150);
-      } catch (e) { log('Audio error: ' + e); }
-    }
-    async function postMovementForm(payload, attempts = 2) {
-      const url = WEBAPP_URL;
-      const params = new URLSearchParams();
-      for (const k in payload) {
-        if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) {
-          params.append(k, String(payload[k]));
-        }
-      }
-      let lastErr = null;
-      for (let i = 1; i <= attempts; i++) {
-        try {
-          log('POST intento ' + i + ' a ' + url);
-          const res = await fetch(url, {
-            method: 'POST',
-            body: params,
-            cache: 'no-store'
-          });
-          const text = await res.text();
-          try { return JSON.parse(text); } catch (e) { return text; }
-        } catch (err) {
-          lastErr = err;
-          log('POST error intento ' + i + ': ' + (err && err.toString ? err.toString() : err));
-          await new Promise(r => setTimeout(r, 200 * i));
-        }
-      }
-      throw lastErr;
-    }
-    async function handleDetectedCode(code) {
-      if (sending) { log('Envío previo en curso, ignorando'); return; }
-      const now = Date.now();
-      if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicado ignorado: ' + code); return; }
-      lastScanned = code; lastTime = now;
-      setLast(code);
-      playBeep();
-      const cantidad = Number(cantidadEl.value) || 1;
-      const tipo = tipoEl.value || 'entrada';
-      const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
-      sending = true;
-      setStatus('Enviando ' + code + ' ...');
-      log('Enviando payload (form): ' + JSON.stringify(payload));
-      try {
-        const result = await postMovementForm(payload, 2);
-        log('Respuesta del servidor: ' + JSON.stringify(result));
-        setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
-      } catch (err) {
-        log('Todos los intentos fallaron: ' + err);
-        setStatus('Error enviando: ' + err);
-      } finally {
-        sending = false;
-      }
-    }
-    startBtn.onclick = () => {
+    document.getElementById('startBtn').onclick = () => {
       Quagga.init({
         inputStream: {
           name: "Live",
@@ -205,49 +64,28 @@
           target: document.querySelector('#video'),
           constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
         },
-        decoder: {
-          readers: [
-            "ean_reader",
-            "ean_8_reader",
-            "upc_reader",
-            "upc_e_reader",
-            "code_128_reader"
-          ]
-        },
-        locate: true,
-        numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
-      }, function (err) {
-        if (err) { log('QuaggaJS init error: ' + JSON.stringify(err)); setStatus('Error QuaggaJS: ' + JSON.stringify(err)); return; }
+        decoder: { readers: ["ean_reader", "code_128_reader"] }
+      }, function(err) {
+        if (err) { alert(err); return; }
         Quagga.start();
         quaggaStarted = true;
-        setStatus('Cámara activa (QuaggaJS). Apunta al código.');
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        log('QuaggaJS iniciado');
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
       });
-      Quagga.onDetected(function (result) {
+      Quagga.onDetected(function(result) {
         if (!result || !result.codeResult || !result.codeResult.code) return;
-        const code = result.codeResult.code;
-        log('Código detectado: ' + code + ' (' + result.codeResult.format + ')');
-        handleDetectedCode(code);
+        // aquí puedes agregar tu lógica de log, status, etc.
       });
     };
-    stopBtn.onclick = () => {
+    document.getElementById('stopBtn').onclick = () => {
       if (quaggaStarted) {
         Quagga.stop();
         quaggaStarted = false;
-        setStatus('Detenido');
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        log('QuaggaJS detenido');
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
         document.getElementById('video').innerHTML = '';
       }
     };
-    beepBtn.onclick = () => {
-      beepOn = !beepOn;
-      beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
-    };
-    log('✅ Listo');
   </script>
 </body>
 </html>
