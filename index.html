@@ -87,6 +87,22 @@
       border: 1px solid #ccc;
       margin-left: 6px;
     }
+    #action-buttons {
+      display: none;
+      text-align: center;
+      margin-top: 18px;
+      margin-bottom: 12px;
+      gap: 16px;
+    }
+    #action-buttons button {
+      padding: 10px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1.5px solid #666;
+      background: #e7e7e7;
+      margin: 0 8px;
+    }
     #status, #last, #log, footer {
       display: block;
       margin-bottom: 10px;
@@ -103,6 +119,16 @@
     #last {
       font-weight: 600;
       font-size: 15px;
+    }
+    #codes-list {
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      font-size: 14px;
+      max-height: 90px;
+      overflow-y: auto;
+      font-family: monospace;
     }
     #log {
       padding: 8px;
@@ -127,7 +153,7 @@
       #video-box { height: 200px;}
     }
     @media (max-width: 500px) {
-      #controls { flex-direction: column; gap: 8px;}
+      #controls, #action-buttons { flex-direction: column; gap: 8px;}
       #video-box { height: 140px;}
       h2 { font-size: 1.15rem;}
     }
@@ -154,6 +180,11 @@
       </label>
       <button id="beepBtn">Pitido ON</button>
     </div>
+    <div id="action-buttons">
+      <button id="nextCodeBtn">Leer otro código</button>
+      <button id="finishBtn">Finalizar lectura</button>
+    </div>
+    <div id="codes-list"></div>
     <div id="status">Estado: detenido</div>
     <div id="last">Último barcode: <span id="lastCode">—</span></div>
     <div id="log"></div>
@@ -174,15 +205,28 @@
     }
     function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
     function setLast(code) { document.getElementById('lastCode').textContent = code; }
+    function renderCodesList() {
+      const el = document.getElementById('codes-list');
+      if (!scannedCodes.length) {
+        el.innerHTML = '';
+        return;
+      }
+      el.innerHTML = '<strong>Códigos leídos:</strong><br>' + scannedCodes.map((c, i) => (i+1)+'. '+c).join('<br>');
+    }
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const tipoEl = document.getElementById('tipo');
     const cantidadEl = document.getElementById('cantidad');
     const beepBtn = document.getElementById('beepBtn');
+    const nextCodeBtn = document.getElementById('nextCodeBtn');
+    const finishBtn = document.getElementById('finishBtn');
+    const actionButtonsEl = document.getElementById('action-buttons');
     let beepOn = true;
     let sending = false;
     let lastScanned = null;
     let lastTime = 0;
+    let waitingForUser = false;
+    let scannedCodes = [];
     const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
     function playBeep() {
@@ -228,12 +272,25 @@
       throw lastErr;
     }
     async function handleDetectedCode(code) {
-      if (sending) { log('Envío previo en curso, ignorando'); return; }
+      if (waitingForUser) {
+        log('Esperando acción del usuario, ignorando código: ' + code);
+        return;
+      }
       const now = Date.now();
-      if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicado ignorado: ' + code); return; }
+      if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
+        log('duplicado ignorado: ' + code);
+        return;
+      }
       lastScanned = code; lastTime = now;
       setLast(code);
       playBeep();
+      scannedCodes.push(code);
+      renderCodesList();
+      setStatus('Código leído: ' + code);
+      waitingForUser = true;
+      actionButtonsEl.style.display = 'flex';
+      // Si quieres enviar al backend en cada lectura, descomenta abajo:
+      /*
       const cantidad = Number(cantidadEl.value) || 1;
       const tipo = tipoEl.value || 'entrada';
       const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
@@ -250,6 +307,7 @@
       } finally {
         sending = false;
       }
+      */
     }
     startBtn.onclick = () => {
       Quagga.init({
@@ -274,9 +332,14 @@
         if (err) { log('QuaggaJS init error: ' + JSON.stringify(err)); setStatus('Error QuaggaJS: ' + JSON.stringify(err)); return; }
         Quagga.start();
         quaggaStarted = true;
+        waitingForUser = false;
+        scannedCodes = [];
+        renderCodesList();
+        setLast('—');
         setStatus('Cámara activa (QuaggaJS). Apunta al código.');
         startBtn.disabled = true;
         stopBtn.disabled = false;
+        actionButtonsEl.style.display = 'none';
         log('QuaggaJS iniciado');
       });
       Quagga.onDetected(function (result) {
@@ -287,7 +350,6 @@
           log('Código ignorado (no EAN-13): ' + code + ' (' + result.codeResult.format + ')');
           return;
         }
-        log('Código detectado: ' + code + ' (' + result.codeResult.format + ')');
         handleDetectedCode(code);
       });
     };
@@ -298,6 +360,7 @@
         setStatus('Detenido');
         startBtn.disabled = false;
         stopBtn.disabled = true;
+        actionButtonsEl.style.display = 'none';
         log('QuaggaJS detenido');
         document.getElementById('video').innerHTML = '';
       }
@@ -305,6 +368,23 @@
     beepBtn.onclick = () => {
       beepOn = !beepOn;
       beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
+    };
+    nextCodeBtn.onclick = () => {
+      waitingForUser = false;
+      setStatus('Listo para leer el siguiente código');
+      actionButtonsEl.style.display = 'none';
+    };
+    finishBtn.onclick = () => {
+      if (quaggaStarted) {
+        Quagga.stop();
+        quaggaStarted = false;
+        setStatus('Lectura finalizada. Total códigos: ' + scannedCodes.length);
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        actionButtonsEl.style.display = 'none';
+        log('Lectura finalizada. Códigos escaneados: ' + JSON.stringify(scannedCodes));
+        document.getElementById('video').innerHTML = '';
+      }
     };
     log('✅ Listo');
   </script>
