@@ -215,19 +215,20 @@
       // Cierra el stream manualmente para liberar la cámara
       let tracks = [];
       try {
-        const videoElem = document.querySelector('video');
+        // QuaggaJS v1 inserta un <video> en el target (#video)
+        const videoElem = document.querySelector('#video video');
         if (videoElem && videoElem.srcObject) {
           tracks = videoElem.srcObject.getTracks();
+          tracks.forEach(track => track.stop());
+          log('Stream de cámara detenido manualmente.');
         }
-      } catch(e) {}
-      if (tracks && tracks.length) {
-        tracks.forEach(track => track.stop());
-        log('Stream de cámara detenido manualmente.');
+      } catch(e) {
+        log('Error al cerrar el stream: ' + e);
       }
+      document.querySelector('#video').innerHTML = '';
     }
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    document.querySelector('#video').innerHTML = '';
   }
 
   startBtn.addEventListener('click', startQuaggaWithPermissionTest);
