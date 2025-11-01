@@ -6,165 +6,33 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
-    body {
-      font-family: Arial, Helvetica, sans-serif;
-      margin: 0;
-      padding: 0;
-      background: #fff;
-    }
-    .main-wrap {
-      max-width: 720px;
-      margin: 24px auto 0 auto;
-      padding: 0 12px;
-      display: block;
-    }
-    h2 {
-      text-align: center;
-      margin-bottom: 32px;
-      font-size: 2rem;
-      font-weight: 600;
-    }
-    #video-box {
-      width: 100%;
-      background: #000;
-      border: 1px solid #ddd;
-      margin-bottom: 24px;
-      display: block;
-      position: relative;
-      height: 360px;
-      overflow: hidden;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    }
-    #video {
-      width: 100%;
-      height: 100%;
-      display: block;
-      background: #000;
-      object-fit: cover;
-      position: relative;
-      z-index: 1;
-      border-radius: 10px;
-    }
-    #controls {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: center;
-      margin: 0 0 24px 0;
-      position: relative;
-      z-index: 2;
-      background: none;
-    }
-    button {
-      padding: 8px 20px;
-      font-size: 15px;
-      border: 1px solid #bbb;
-      border-radius: 4px;
-      background: #f7f7f7;
-      cursor: pointer;
-      transition: background 0.18s, border 0.18s;
-    }
-    button:disabled {
-      background: #eaeaea;
-      color: #888;
-      cursor: not-allowed;
-      border-color: #eee;
-    }
-    label {
-      font-size: 14px;
-      color: #333;
-      font-weight: 500;
-      margin-right: 8px;
-      display: flex;
-      align-items: center;
-    }
-    select, input[type="number"] {
-      font-size: 15px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      margin-left: 6px;
-    }
-    #action-buttons {
-      display: none;
-      text-align: center;
-      margin-top: 18px;
-      margin-bottom: 12px;
-      gap: 16px;
-    }
-    #action-buttons button {
-      padding: 10px 24px;
-      font-size: 15px;
-      font-weight: 600;
-      border-radius: 6px;
-      border: 1.5px solid #666;
-      background: #e7e7e7;
-      margin: 0 8px;
-    }
-    #status, #last, #log, footer {
-      display: block;
-      margin-bottom: 10px;
-      max-width: 720px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    #status {
-      margin-top: 12px;
-      color: #222;
-      word-break: break-word;
-      font-size: 16px;
-    }
-    #last {
-      font-weight: 600;
-      font-size: 15px;
-    }
-    #codes-list {
-      padding: 8px;
-      background: #f5f5f5;
-      border-radius: 6px;
-      margin-bottom: 14px;
-      font-size: 14px;
-      max-height: 90px;
-      overflow-y: auto;
-      font-family: monospace;
-    }
-    #log {
-      padding: 8px;
-      border: 1px solid #eee;
-      background: #fafafa;
-      max-height: 220px;
-      overflow: auto;
-      font-family: monospace;
-      font-size: 13px;
-      white-space: pre-wrap;
-      border-radius: 6px;
-    }
-    footer {
-      color: #666;
-      font-size: 13px;
-      text-align: center;
-      margin-top: 15px;
-      margin-bottom: 24px;
-    }
-    @media (max-width: 800px) {
-      .main-wrap, #status, #last, #log, footer { max-width: 95vw; }
-      #video-box { height: 200px;}
-    }
-    @media (max-width: 500px) {
-      #controls, #action-buttons { flex-direction: column; gap: 8px;}
-      #video-box { height: 140px;}
-      h2 { font-size: 1.15rem;}
-    }
+    /* ... estilos igual que antes ... */
+    body { font-family: Arial, Helvetica, sans-serif;margin:0;padding:0;background:#fff;}
+    .main-wrap { max-width: 720px; margin: 24px auto 0 auto; padding: 0 12px; display: block; }
+    h2 { text-align:center;margin-bottom:32px;font-size:2rem;font-weight:600;}
+    #video-box { width:100%; background:#000; border:1px solid #ddd; margin-bottom:24px; display:block; position:relative; height:360px; overflow:hidden; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.04);}
+    #video { width:100%; height:100%; display:block; background:#000; object-fit:cover; position:relative; z-index:1; border-radius:10px;}
+    #controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:center; margin:0 0 24px 0; position:relative; z-index:2; background:none;}
+    button { padding:8px 20px; font-size:15px; border:1px solid #bbb; border-radius:4px; background:#f7f7f7; cursor:pointer; transition:background 0.18s, border 0.18s;}
+    button:disabled { background:#eaeaea; color:#888; cursor:not-allowed; border-color:#eee;}
+    label { font-size:14px; color:#333; font-weight:500; margin-right:8px; display:flex; align-items:center;}
+    select, input[type="number"] { font-size:15px; padding:4px 8px; border-radius:4px; border:1px solid #ccc; margin-left:6px;}
+    #action-buttons { display:none; text-align:center; margin-top:18px; margin-bottom:12px; gap:16px;}
+    #action-buttons button { padding:10px 24px; font-size:15px; font-weight:600; border-radius:6px; border:1.5px solid #666; background:#e7e7e7; margin:0 8px;}
+    #status, #last, #log, footer { display:block; margin-bottom:10px; max-width:720px; margin-left:auto; margin-right:auto;}
+    #status { margin-top:12px; color:#222; word-break:break-word; font-size:16px;}
+    #last { font-weight:600; font-size:15px;}
+    #codes-list { padding:8px; background:#f5f5f5; border-radius:6px; margin-bottom:14px; font-size:14px; max-height:90px; overflow-y:auto; font-family:monospace;}
+    #log { padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:13px; white-space:pre-wrap; border-radius:6px;}
+    footer { color:#666; font-size:13px; text-align:center; margin-top:15px; margin-bottom:24px;}
+    @media (max-width:800px) { .main-wrap, #status, #last, #log, footer { max-width:95vw;} #video-box { height:200px;} }
+    @media (max-width:500px) { #controls, #action-buttons { flex-direction:column; gap:8px;} #video-box { height:140px;} h2 { font-size:1.15rem;} }
   </style>
 </head>
 <body>
   <div class="main-wrap">
     <h2>Escáner con cámara (QuaggaJS v1)</h2>
-    <div id="video-box">
-      <div id="video"></div>
-    </div>
+    <div id="video-box"><div id="video"></div></div>
     <div id="controls">
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
@@ -227,6 +95,7 @@
     let lastTime = 0;
     let waitingForUser = false;
     let scannedCodes = [];
+    let lastCodeToSend = null;
     const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
 
@@ -293,7 +162,7 @@
       }
     }
 
-    async function handleDetectedCode(code) {
+    function handleDetectedCode(code) {
       if (waitingForUser) {
         log('Esperando acción del usuario, ignorando código: ' + code);
         return;
@@ -307,13 +176,11 @@
       setLast(code);
       playBeep();
       scannedCodes.push(code);
+      lastCodeToSend = code;
       renderCodesList();
-      setStatus('Código leído: ' + code);
+      setStatus('Código leído: ' + code + '. Confirma si quieres continuar.');
       waitingForUser = true;
       actionButtonsEl.style.display = 'flex';
-      // Enviar al backend solo cuando el usuario pulse "Leer otro código"
-      // Si quieres enviar en cada lectura automática, descomenta la siguiente línea:
-      // await sendCodeToBackend(code);
     }
 
     startBtn.onclick = () => {
@@ -341,6 +208,7 @@
         quaggaStarted = true;
         waitingForUser = false;
         scannedCodes = [];
+        lastCodeToSend = null;
         renderCodesList();
         setLast('—');
         setStatus('Cámara activa (QuaggaJS). Apunta al código.');
@@ -381,9 +249,9 @@
 
     nextCodeBtn.onclick = async () => {
       // Solo enviar el último código leído al backend cuando el usuario pulse "Leer otro código"
-      const lastCode = scannedCodes.length ? scannedCodes[scannedCodes.length - 1] : null;
-      if (lastCode) {
-        await sendCodeToBackend(lastCode);
+      if (lastCodeToSend) {
+        await sendCodeToBackend(lastCodeToSend);
+        lastCodeToSend = null;
       }
       waitingForUser = false;
       setStatus('Listo para leer el siguiente código');
