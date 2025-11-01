@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Escáner QuaggaJS — Velykapet POS</title>
+  <title>Escáner con cámara (QuaggaJS v1)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
@@ -94,7 +94,7 @@
     let lastTime = 0;
     let waitingForUser = false;
     let scannedCodes = [];
-    let codesDetected = []; // <--- Aquí guardamos los códigos detectados
+    let codesDetected = [];
     const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
 
@@ -150,7 +150,7 @@
     }
 
     function updateSelectDetected() {
-      // Remueve duplicados por ciclo, muestra formato
+      // Acumula sólo códigos únicos en el ciclo, muestra formato
       const uniqueCodes = [];
       selectCodeEl.innerHTML = '';
       codesDetected.forEach(item => {
@@ -166,9 +166,10 @@
 
     function handleDetectedCode(code, format) {
       if (waitingForUser) {
+        // Solo acumula códigos en el ciclo de espera
         codesDetected.push({ code, format });
         updateSelectDetected();
-        log('Esperando acción del usuario, ignorando código: ' + code);
+        log('Esperando acción del usuario, acumulando código: ' + code);
         return;
       }
       // Primer código del ciclo
