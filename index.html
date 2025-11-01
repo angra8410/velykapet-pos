@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Scanner cámara — Velykapet POS</title>
-
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
     #video-container { width: 100%; max-width: 720px; margin: 0 auto; display:flex; flex-direction:column; gap:8px; }
@@ -14,20 +13,17 @@
     #status { margin-top:8px; color:#222; word-break:break-word; }
     #last { margin-top:6px; font-weight:600; }
     .small { font-size:13px; color:#666; }
-    #log { margin-top:8px; padding:8px; border:1px solid #333; background:#000; color:#0f0; max-height:300px; overflow:auto; font-family:monospace; font-size:11px; white-space:pre-wrap; }
+    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
     footer { margin-top:12px; color:#666; font-size:13px; }
   </style>
 </head>
 <body>
   <h2>Escáner con cámara (mobile)</h2>
-
   <div id="video-container">
     <video id="video" autoplay muted playsinline></video>
-
     <div id="controls">
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
-
       <label class="small">Tipo:
         <select id="tipo">
           <option value="entrada">entrada (sumar)</option>
@@ -35,26 +31,21 @@
           <option value="ajuste">ajuste</option>
         </select>
       </label>
-
       <label class="small">Cantidad:
         <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px"/>
       </label>
-
       <button id="beepBtn">Pitido ON</button>
     </div>
-
     <div id="status">Estado: detenido</div>
     <div id="last">Último barcode: <span id="lastCode">—</span></div>
     <div id="log"></div>
   </div>
-
   <footer>
     Nota: primero se usa la API nativa BarcodeDetector si está disponible (Chrome Android la soporta). Si no, se intentará ZXing desde CDN.
   </footer>
-
   <script>
   // CONFIGURA AQUÍ:
-  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzwyfyq_NX2AGvfDdgQZnc3xtpZyQUwDAlrGEinTgxsWZeU-pq_BPHz-bGuVzeBV6k/exec';
+  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
   const TOKEN = '';
 
   // UI helpers
@@ -62,14 +53,14 @@
   function log(msg) { 
     console.log(msg); 
     if (logEl) { 
-      const timestamp = new Date().toISOString().substring(11, 23);
-      logEl.textContent = '[' + timestamp + '] ' + msg + '\n' + logEl.textContent.substring(0, 1000); 
+      logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; 
+      logEl.scrollTop = logEl.scrollHeight; 
     } 
   }
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
-  // load ZXing fallback quietly (CDN) - tries multiple hosts
+  // ZXing fallback loader (CDN)
   (function loadZXing(cb) {
     var urls = [
       'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
@@ -109,7 +100,6 @@
   let beepOn = true;
   let localStream = null;
   let detector = null;
-  let isStarting = false;  // <-- NUEVO: evitar clicks múltiples
 
   function playBeep() {
     if (!beepOn) return;
@@ -140,12 +130,7 @@
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       videoEl.srcObject = localStream;
-      
-      // ARREGLO: esperar que el video esté listo antes de play()
-      videoEl.onloadedmetadata = function() {
-        videoEl.play().catch(e => log('Play error: ' + e));
-      };
-      
+      await videoEl.play();
       log('Camera stream started for BarcodeDetector');
     } catch (err) {
       log('getUserMedia error: ' + (err && err.message ? err.message : err));
@@ -180,9 +165,7 @@
             handleDetectedCode(code);
             await new Promise(r=>setTimeout(r, 300));
           }
-        } catch (err) {
-          // ignore detector runtime errors
-        }
+        } catch (err) { /* ignore detector runtime errors */ }
         requestAnimationFrame(detectLoop);
       }
       requestAnimationFrame(detectLoop);
@@ -240,62 +223,32 @@
     setStatus('Detenido');
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    isStarting = false;
   }
 
-  // ========== ARREGLO V2: JSON + no-cors ==========
-
-  function fetchWithTimeout(url, options, timeoutMs) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error('Timeout después de ' + timeoutMs + 'ms'));
-      }, timeoutMs);
-      
-      fetch(url, options)
-        .then(response => {
-          clearTimeout(timer);
-          resolve(response);
-        })
-        .catch(err => {
-          clearTimeout(timer);
-          reject(err);
-        });
-    });
-  }
-
-  async function postMovementForm(payload, attempts = 3, timeoutMs = 10000) {
+  // ====== ENVÍO FORM-ENCODED, NO JSON ======
+  async function postMovementForm(payload, attempts = 2) {
     const url = WEBAPP_URL;
-    
-    log('📤 Payload: ' + JSON.stringify(payload));
-
+    const params = new URLSearchParams();
+    for (const k in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) {
+        params.append(k, String(payload[k]));
+      }
+    }
     let lastErr = null;
     for (let i = 1; i <= attempts; i++) {
       try {
-        log('🔄 Intento ' + i + '/' + attempts);
-        
-        const res = await fetchWithTimeout(url, {
+        log('POST intento ' + i + ' a ' + url);
+        const res = await fetch(url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload),
-          cache: 'no-store',
-          mode: 'no-cors',  // Evita bloqueo CORS
-          redirect: 'follow'
-        }, timeoutMs);
-        
-        log('✅ Enviado (mode: no-cors)');
-        // Con no-cors no podemos leer respuesta, pero se envía
-        return { ok: true, mode: 'no-cors' };
-        
+          body: params,
+          cache: 'no-store'
+        });
+        const text = await res.text();
+        try { return JSON.parse(text); } catch(e) { return text; }
       } catch (err) {
         lastErr = err;
-        log('❌ Intento ' + i + ' falló: ' + (err.message || err));
-        
-        if (i < attempts) {
-          const waitTime = 250 * i;
-          await new Promise(r => setTimeout(r, waitTime));
-        }
+        log('POST error intento ' + i + ': ' + (err && err.toString ? err.toString() : err));
+        await new Promise(r => setTimeout(r, 200 * i));
       }
     }
     throw lastErr;
@@ -303,86 +256,46 @@
 
   let sending = false;
   async function handleDetectedCode(code) {
-    if (sending) { 
-      log('⚠️ Ya hay envío en curso'); 
-      return; 
-    }
-
+    if (sending) { log('Envío previo en curso, ignorando'); return; }
     const now = Date.now();
-    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
-      return;
-    }
-    
-    lastScanned = code; 
-    lastTime = now;
+    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicado ignorado: ' + code); return; }
+    lastScanned = code; lastTime = now;
     setLast(code);
     playBeep();
-
     const cantidad = Number(cantidadEl.value) || 1;
     const tipo = tipoEl.value || 'entrada';
-    const payload = { 
-      barcode: String(code), 
-      cantidad: cantidad, 
-      tipo: tipo, 
-      usuario: 'camera', 
-      token: TOKEN 
-    };
-
+    const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
     sending = true;
-    setStatus('📡 Enviando...');
-    log('🎯 Detectado: ' + code);
-
+    setStatus('Enviando ' + code + ' ...');
+    log('Enviando payload (form): ' + JSON.stringify(payload));
     try {
-      const result = await postMovementForm(payload, 3, 10000);
-      log('✅ Éxito');
-      setStatus('✅ Enviado');
+      const result = await postMovementForm(payload, 2);
+      log('Respuesta del servidor: ' + JSON.stringify(result));
+      setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
     } catch (err) {
-      log('❌ FALLO TOTAL: ' + (err.message || err));
-      setStatus('❌ Error');
+      log('Todos los intentos fallaron: ' + err);
+      setStatus('Error enviando: ' + err);
     } finally {
       sending = false;
     }
   }
 
-  // ==========================================================
-
   async function startScanner() {
-    if (isStarting) {
-      log('⚠️ Ya se está iniciando...');
-      return;
-    }
-    
-    isStarting = true;
     log('startScanner called');
-    
-    if (!hasGetUserMedia) { 
-      setStatus('getUserMedia no soportado'); 
-      isStarting = false;
-      return; 
-    }
-
+    if (!hasGetUserMedia) { setStatus('getUserMedia no soportado'); return; }
     if (hasBarcodeDetector) {
       const ok = await startBarcodeDetectorFlow();
-      if (ok) {
-        isStarting = false;
-        return;
-      }
+      if (ok) return;
       log('BarcodeDetector fallback failed, trying ZXing');
     }
-
     if (window.__ZXING_LOADED || (window.ZXingBrowser || window.ZXing)) {
       const ok2 = await startZXingFlow();
-      if (ok2) {
-        isStarting = false;
-        return;
-      }
+      if (ok2) return;
       log('ZXing fallback failed');
     } else {
       log('ZXing not loaded from CDNs; cannot start ZXing fallback');
     }
-
     setStatus('No fue posible iniciar un escáner. Revisa el log y los permisos.');
-    isStarting = false;
   }
 
   startBtn.addEventListener('click', startScanner);
