@@ -109,6 +109,7 @@
   let beepOn = true;
   let localStream = null;
   let detector = null;
+  let isStarting = false;  // <-- NUEVO: evitar clicks múltiples
 
   function playBeep() {
     if (!beepOn) return;
@@ -139,7 +140,12 @@
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       videoEl.srcObject = localStream;
-      await videoEl.play();
+      
+      // ARREGLO: esperar que el video esté listo antes de play()
+      videoEl.onloadedmetadata = function() {
+        videoEl.play().catch(e => log('Play error: ' + e));
+      };
+      
       log('Camera stream started for BarcodeDetector');
     } catch (err) {
       log('getUserMedia error: ' + (err && err.message ? err.message : err));
@@ -234,6 +240,7 @@
     setStatus('Detenido');
     startBtn.disabled = false;
     stopBtn.disabled = true;
+    isStarting = false;
   }
 
   // ========== ARREGLO V2: JSON + no-cors ==========
@@ -259,8 +266,6 @@
   async function postMovementForm(payload, attempts = 3, timeoutMs = 10000) {
     const url = WEBAPP_URL;
     
-    log('📤 Payload: ' + JSON.stringify(payload));
-
     log('📤 Payload: ' + JSON.stringify(payload));
 
     let lastErr = null;
@@ -342,24 +347,42 @@
   // ==========================================================
 
   async function startScanner() {
+    if (isStarting) {
+      log('⚠️ Ya se está iniciando...');
+      return;
+    }
+    
+    isStarting = true;
     log('startScanner called');
-    if (!hasGetUserMedia) { setStatus('getUserMedia no soportado'); return; }
+    
+    if (!hasGetUserMedia) { 
+      setStatus('getUserMedia no soportado'); 
+      isStarting = false;
+      return; 
+    }
 
     if (hasBarcodeDetector) {
       const ok = await startBarcodeDetectorFlow();
-      if (ok) return;
+      if (ok) {
+        isStarting = false;
+        return;
+      }
       log('BarcodeDetector fallback failed, trying ZXing');
     }
 
     if (window.__ZXING_LOADED || (window.ZXingBrowser || window.ZXing)) {
       const ok2 = await startZXingFlow();
-      if (ok2) return;
+      if (ok2) {
+        isStarting = false;
+        return;
+      }
       log('ZXing fallback failed');
     } else {
       log('ZXing not loaded from CDNs; cannot start ZXing fallback');
     }
 
     setStatus('No fue posible iniciar un escáner. Revisa el log y los permisos.');
+    isStarting = false;
   }
 
   startBtn.addEventListener('click', startScanner);
