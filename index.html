@@ -173,8 +173,8 @@
       numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
     }, function(err) {
       if (err) {
-        log('QuaggaJS init error: ' + (err.message || err));
-        setStatus('Error QuaggaJS: ' + (err.message || err));
+        log('QuaggaJS init error: ' + JSON.stringify(err));
+        setStatus('Error QuaggaJS: ' + JSON.stringify(err));
         return;
       }
       Quagga.start();
