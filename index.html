@@ -5,19 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Scanner cámara — Velykapet POS</title>
 
-  <!--
-    Loader tolerante de ZXing: intenta varios CDNs y, si todos fallan,
-    muestra instrucciones claras en la UI. Si quieres la versión
-    totalmente embebida (sin depender de CDNs), dime y la genero
-    (archivo mucho más grande).
-  -->
+  <!-- Intentar cargar ZXing si BarcodeDetector no está disponible -->
   <script>
   (function loadZXing(cb) {
+    // No intenta si BarcodeDetector está disponible; la página verificará en runtime.
     var urls = [
-      // intentamos sin versión (más probable que exista)
       'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
-      'https://unpkg.com/@zxing/browser/umd/index.min.js',
-      // fallback alternativo (si alguna vez agregan otros mirrors)
+      'https://unpkg.com/@zxing/browser/umd/index.min.js'
     ];
     function tryLoad(i) {
       if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
@@ -30,12 +24,12 @@
     tryLoad(0);
   })(function(err, url) {
     if (err) {
-      console.error('ZXing library could not be loaded from CDNs. Please check network or request an embedded build.');
+      console.warn('ZXing library not loaded from CDNs.');
       window.__ZXING_LOADED = false;
     } else {
       window.__ZXING_LOADED = true;
       window.__ZXING_SRC = url;
-      console.log('ZXing is available:', !!(window.ZXingBrowser || window.ZXing));
+      console.log('ZXing available:', !!(window.ZXingBrowser || window.ZXing));
     }
   });
   </script>
@@ -49,9 +43,8 @@
     #status { margin-top:8px; color:#222; word-break:break-word; }
     #last { margin-top:6px; font-weight:600; }
     .small { font-size:13px; color:#666; }
-    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:200px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
-    .warning { color:#b45; font-weight:600; }
-    footer { margin-top:18px; font-size:13px; color:#666; }
+    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
+    footer { margin-top:12px; color:#666; font-size:13px; }
   </style>
 </head>
 <body>
@@ -85,27 +78,19 @@
   </div>
 
   <footer>
-    Nota: la página intentará cargar la librería ZXing desde CDNs. Si tu red o el navegador
-    bloquea la carga, verás un mensaje en el log con instrucciones. Si quieres la versión
-    totalmente embebida (sin depender de CDNs), indícame y la genero para que la subas.
+    Nota: primero se usa la API nativa BarcodeDetector si está disponible (Chrome Android la soporta). Si no, se intentará ZXing desde CDN.
   </footer>
 
   <script>
   // CONFIGURA AQUÍ:
-  // Reemplaza la URL por la de tu Web App (la que termina en /exec)
-  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- REEMPLAZA
-  const TOKEN = ''; // si usas EXPECTED_TOKEN en config.gs ponlo aquí
+  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- REEMPLAZA con tu Web App URL
+  const TOKEN = ''; // <-- si usas EXPECTED_TOKEN ponlo aquí
 
-  // Helpers UI
+  // UI helpers
   const logEl = document.getElementById('log');
-  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
+  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\\n'; logEl.scrollTop = logEl.scrollHeight; } }
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
-
-  // Feature detection
-  const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-  log('getUserMedia supported: ' + hasGetUserMedia);
-  log('ZXing loaded flag: ' + (window.__ZXING_LOADED === true ? 'yes, from ' + window.__ZXING_SRC : 'no'));
 
   // Elements
   const videoEl = document.getElementById('video');
@@ -115,11 +100,21 @@
   const cantidadEl = document.getElementById('cantidad');
   const beepBtn = document.getElementById('beepBtn');
 
+  // Feature detections
+  const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const hasBarcodeDetector = !!(window.BarcodeDetector);
+  log('getUserMedia supported: ' + hasGetUserMedia);
+  log('BarcodeDetector available: ' + hasBarcodeDetector);
+  log('ZXing loaded flag: ' + (window.__ZXING_LOADED ? 'yes' : 'no'));
+
+  // State
   let codeReader = null;
   let lastScanned = null;
   let lastTime = 0;
   const DUPLICATE_DELAY = 800;
   let beepOn = true;
+  let localStream = null;
+  let detector = null; // for BarcodeDetector
 
   function playBeep() {
     if (!beepOn) return;
@@ -134,93 +129,150 @@
       o.start(0);
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
       setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
-    } catch(e) {
-      log('Audio error: ' + e);
-    }
+    } catch(e){ log('Audio error: ' + e); }
   }
 
-  // Safe getter for ZXing constructor
+  // Helper: safe getter for ZXing BrowserMultiFormatReader
   function getBrowserMultiFormatReader() {
     const ns = window.ZXingBrowser || window.ZXing;
     if (!ns) return null;
     return ns.BrowserMultiFormatReader || ns.BrowserMultiFormatReader;
   }
 
-  async function startScanner() {
-    log('startScanner called');
-    if (!hasGetUserMedia) {
-      setStatus('getUserMedia no soportado en este navegador');
-      log('Aborting: getUserMedia not supported');
-      return;
-    }
-
-    setStatus('Solicitando cámara...');
-    // Quick permission test to trigger the prompt
+  // BarcodeDetector flow (native)
+  async function startBarcodeDetectorFlow() {
+    if (!hasGetUserMedia) { setStatus('getUserMedia no soportado'); return false; }
+    setStatus('Solicitando cámara (BarcodeDetector)...');
     try {
-      const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      if (tmp && tmp.getTracks) tmp.getTracks().forEach(t => t.stop());
-      log('getUserMedia permission OK');
+      localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      videoEl.srcObject = localStream;
+      await videoEl.play();
+      log('Camera stream started for BarcodeDetector');
     } catch (err) {
       log('getUserMedia error: ' + (err && err.message ? err.message : err));
       setStatus('Error getUserMedia: ' + (err && err.message ? err.message : err));
-      // If permission denied, instruct user to allow camera via site settings
-      if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
-        log('Permisos: revisa Configuración del sitio → Cámara → Allow');
-      }
-      return;
-    }
-
-    // Ensure ZXing is available
-    const BrowserMultiFormatReader = getBrowserMultiFormatReader();
-    if (!BrowserMultiFormatReader) {
-      log('ZXing library not available. If you see this, the CDNs failed to load.');
-      setStatus('ZXing no cargado. Revisa el log y prueba abrir: https://unpkg.com/@zxing/browser/umd/index.min.js');
-      return;
+      return false;
     }
 
     try {
+      // Create detector if not exists; prefer formats common for barcodes (EAN_13, CODE_128, EAN_8, UPC_A)
+      if (!detector) {
+        const formats = ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code'];
+        // Some browsers expect BarcodeDetector.getSupportedFormats()
+        try {
+          if (window.BarcodeDetector && window.BarcodeDetector.getSupportedFormats) {
+            const supp = await window.BarcodeDetector.getSupportedFormats();
+            log('BarcodeDetector supported formats: ' + supp.join(','));
+          }
+        } catch(e){}
+        detector = new BarcodeDetector({formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code']});
+      }
+
+      // Loop: capture frames and detect
+      setStatus('Cámara activa (BarcodeDetector). Apunta al código.');
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      async function detectLoop() {
+        if (!localStream || !videoEl || videoEl.paused || videoEl.ended) {
+          return;
+        }
+        try {
+          canvas.width = videoEl.videoWidth;
+          canvas.height = videoEl.videoHeight;
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          const img = ctx.getImageData(0,0,canvas.width, canvas.height);
+          const detections = await detector.detect(img);
+          if (detections && detections.length) {
+            // take first detection
+            const code = detections[0].rawValue;
+            handleDetectedCode(code);
+            // small pause to avoid duplicates
+            await new Promise(r=>setTimeout(r, 400));
+          }
+        } catch (err) {
+          // barcode detector may throw if unsupported or invalid data; log and continue
+          //console.debug('detector error', err);
+        }
+        // next frame
+        requestAnimationFrame(detectLoop);
+      }
+      requestAnimationFrame(detectLoop);
+      return true;
+    } catch (err) {
+      log('BarcodeDetector init/loop error: ' + (err && err.message ? err.message : err));
+      return false;
+    }
+  }
+
+  // ZXing flow (CDN)
+  async function startZXingFlow() {
+    const BrowserMultiFormatReader = getBrowserMultiFormatReader();
+    if (!BrowserMultiFormatReader) {
+      log('ZXing constructor not found.');
+      return false;
+    }
+    setStatus('Solicitando cámara (ZXing)...');
+    try {
+      // ZXing will manage the stream itself via decodeFromVideoDevice
       codeReader = new BrowserMultiFormatReader();
-      log('ZXing reader created');
+      // enumerate devices and pick back camera if possible
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter(d => d.kind === 'videoinput');
       log('video inputs: ' + videoInputs.map(d => d.label || d.deviceId).join(', '));
-
-      // Prefer rear camera if label contains common words, fallback to the first
       const back = videoInputs.find(d => /back|rear|traseira|trasero|environment/i.test(d.label)) || videoInputs[0];
       const selectedId = back ? back.deviceId : (videoInputs[0] && videoInputs[0].deviceId);
-      if (!selectedId) { setStatus('No se encontró dispositivo de video'); log('No video deviceId'); return; }
-
+      if (!selectedId) {
+        log('No video device found');
+        setStatus('No se encontró dispositivo de video');
+        return false;
+      }
       await codeReader.decodeFromVideoDevice(selectedId, videoEl, (result, err) => {
         if (result) {
-          handleScan(result.getText());
+          handleDetectedCode(result.getText());
         } else if (err && err.name !== 'NotFoundException') {
           console.debug('ZXing err', err);
         }
       });
-
-      setStatus('Cámara activa. Apunta al código.');
+      setStatus('Cámara activa (ZXing). Apunta al código.');
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      log('ZXing decode loop started');
+      return true;
     } catch (err) {
-      log('Error inicializando ZXing: ' + (err && err.message ? err.message : err));
-      setStatus('Error inicializando ZXing: ' + (err && err.message ? err.message : err));
+      log('Error ZXing flow: ' + (err && err.message ? err.message : err));
+      setStatus('Error ZXing: ' + (err && err.message ? err.message : err));
+      return false;
     }
   }
 
-  function stopScanner() {
-    log('stopScanner called');
-    try { if (codeReader) codeReader.reset(); } catch(e){ log('error resetting codeReader: '+e); }
-    try { const s = videoEl.srcObject; if (s && s.getTracks) s.getTracks().forEach(t => t.stop()); } catch(e){}
+  function stopAll() {
+    // stop ZXing if any
+    try { if (codeReader) { codeReader.reset(); } } catch(e){ console.warn(e); }
+    codeReader = null;
+    // stop local stream
+    try {
+      if (localStream && localStream.getTracks) localStream.getTracks().forEach(t => t.stop());
+    } catch(e){}
+    localStream = null;
     videoEl.srcObject = null;
     setStatus('Detenido');
     startBtn.disabled = false;
     stopBtn.disabled = true;
   }
 
-  function handleScan(code) {
+  // common detected handler
+  let scanning = false;
+  function handleDetectedCode(code) {
+    if (scanning) return; // small debounce
+    scanning = true;
     const now = Date.now();
-    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicate ignored ' + code); return; }
+    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
+      scanning = false;
+      return;
+    }
     lastScanned = code; lastTime = now;
     setLast(code);
     playBeep();
@@ -228,7 +280,6 @@
     const cantidad = Number(cantidadEl.value) || 1;
     const tipo = tipoEl.value || 'entrada';
     const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
-
     log('Enviando payload: ' + JSON.stringify(payload));
     setStatus('Enviando ' + code + ' ...');
 
@@ -241,16 +292,44 @@
       .catch(e => {
         log('Fetch error: ' + e);
         setStatus('Error enviando: ' + e);
-      });
+      })
+      .finally(()=>{ setTimeout(()=>{ scanning = false; }, 200); });
+  }
+
+  // main start: try BarcodeDetector first, then ZXing fallback
+  async function startScanner() {
+    log('startScanner called');
+    if (!hasGetUserMedia) {
+      setStatus('getUserMedia no soportado');
+      return;
+    }
+
+    // If BarcodeDetector is available, try that first
+    if (hasBarcodeDetector) {
+      const ok = await startBarcodeDetectorFlow();
+      if (ok) return;
+      log('BarcodeDetector fallback failed, will try ZXing');
+    }
+
+    // If ZXing loaded flag is true or ZXing is present on window, try ZXing
+    if (window.__ZXING_LOADED || (window.ZXingBrowser || window.ZXing)) {
+      const ok = await startZXingFlow();
+      if (ok) return;
+      log('ZXing fallback failed');
+    } else {
+      log('ZXing not loaded from CDNs; cannot start ZXing fallback');
+    }
+
+    setStatus('No fue posible iniciar un escáner. Revisa el log y los permisos.');
   }
 
   // UI bindings
   startBtn.addEventListener('click', startScanner);
-  stopBtn.addEventListener('click', stopScanner);
+  stopBtn.addEventListener('click', stopAll);
   beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
-  // Diagnostic console message
-  console.log('diagnostic loaded: getUserMedia=' + hasGetUserMedia + ' ZXing=' + !!(window.ZXingBrowser || window.ZXing));
+  // diagnostic
+  console.log('diagnostic: getUserMedia=' + hasGetUserMedia + ' BarcodeDetector=' + hasBarcodeDetector + ' ZXing=' + !!(window.__ZXING_LOADED));
   </script>
 </body>
 </html>
