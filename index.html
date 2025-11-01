@@ -71,7 +71,7 @@
   let lastTime = 0;
   const DUPLICATE_DELAY = 1000;
   let quaggaStarted = false;
-  let globalStream = null; // <--- Guarda el stream aquí
+  let globalStreams = []; // Guarda todos los streams detectados
 
   function playBeep() {
     if (!beepOn) return;
@@ -149,7 +149,7 @@
       .then(function(stream) {
         log('Permiso de cámara OK, stream iniciado');
         setStatus('Permiso de cámara OK, iniciando Quagga...');
-        globalStream = stream; // <--- Guarda el stream
+        globalStreams.push(stream); // Guarda el stream por si Quagga no lo usa
         stream.getTracks().forEach(track => track.stop());
         iniciarQuagga();
       })
@@ -197,7 +197,7 @@
         try {
           const videoElem = document.querySelector('#video video');
           if (videoElem && videoElem.srcObject) {
-            globalStream = videoElem.srcObject;
+            globalStreams.push(videoElem.srcObject);
             log('Stream guardado desde Quagga videoElem');
           }
         } catch(e) { log('Error guardando stream: ' + e); }
@@ -225,18 +225,18 @@
       log('QuaggaJS detenido');
       setStatus('Detenido');
 
-      // Detiene el stream guardado globalmente
-      if (globalStream) {
-        try {
-          globalStream.getTracks().forEach(track => {
-            track.stop();
-            log('Track detenido (globalStream): ' + track.kind);
-          });
-          globalStream = null;
-          log('globalStream seteado a null.');
-        } catch(e) {
-          log('Error al detener globalStream: ' + e);
-        }
+      // Detiene TODOS los streams guardados
+      if (globalStreams.length > 0) {
+        globalStreams.forEach(stream => {
+          if (stream) {
+            stream.getTracks().forEach(track => {
+              track.stop();
+              log('Track detenido (globalStreams): ' + track.kind);
+            });
+          }
+        });
+        globalStreams = [];
+        log('globalStreams limpiados.');
       }
 
       // Además, recorre y remueve todos los videos por si hay más
