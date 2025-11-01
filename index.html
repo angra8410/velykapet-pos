@@ -229,6 +229,7 @@
     let scannedCodes = [];
     const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
+
     function playBeep() {
       if (!beepOn) return;
       try {
@@ -244,6 +245,7 @@
         setTimeout(() => { o.stop(); ctx.close(); }, 150);
       } catch (e) { log('Audio error: ' + e); }
     }
+
     async function postMovementForm(payload, attempts = 2) {
       const url = WEBAPP_URL;
       const params = new URLSearchParams();
@@ -271,6 +273,26 @@
       }
       throw lastErr;
     }
+
+    async function sendCodeToBackend(code) {
+      const cantidad = Number(cantidadEl.value) || 1;
+      const tipo = tipoEl.value || 'entrada';
+      const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
+      sending = true;
+      setStatus('Enviando ' + code + ' ...');
+      log('Enviando payload (form): ' + JSON.stringify(payload));
+      try {
+        const result = await postMovementForm(payload, 2);
+        log('Respuesta del servidor: ' + JSON.stringify(result));
+        setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
+      } catch (err) {
+        log('Todos los intentos fallaron: ' + err);
+        setStatus('Error enviando: ' + err);
+      } finally {
+        sending = false;
+      }
+    }
+
     async function handleDetectedCode(code) {
       if (waitingForUser) {
         log('Esperando acción del usuario, ignorando código: ' + code);
@@ -289,26 +311,11 @@
       setStatus('Código leído: ' + code);
       waitingForUser = true;
       actionButtonsEl.style.display = 'flex';
-      // Si quieres enviar al backend en cada lectura, descomenta abajo:
-      /*
-      const cantidad = Number(cantidadEl.value) || 1;
-      const tipo = tipoEl.value || 'entrada';
-      const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
-      sending = true;
-      setStatus('Enviando ' + code + ' ...');
-      log('Enviando payload (form): ' + JSON.stringify(payload));
-      try {
-        const result = await postMovementForm(payload, 2);
-        log('Respuesta del servidor: ' + JSON.stringify(result));
-        setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
-      } catch (err) {
-        log('Todos los intentos fallaron: ' + err);
-        setStatus('Error enviando: ' + err);
-      } finally {
-        sending = false;
-      }
-      */
+      // Enviar al backend solo cuando el usuario pulse "Leer otro código"
+      // Si quieres enviar en cada lectura automática, descomenta la siguiente línea:
+      // await sendCodeToBackend(code);
     }
+
     startBtn.onclick = () => {
       Quagga.init({
         inputStream: {
@@ -353,6 +360,7 @@
         handleDetectedCode(code);
       });
     };
+
     stopBtn.onclick = () => {
       if (quaggaStarted) {
         Quagga.stop();
@@ -365,15 +373,23 @@
         document.getElementById('video').innerHTML = '';
       }
     };
+
     beepBtn.onclick = () => {
       beepOn = !beepOn;
       beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
     };
-    nextCodeBtn.onclick = () => {
+
+    nextCodeBtn.onclick = async () => {
+      // Solo enviar el último código leído al backend cuando el usuario pulse "Leer otro código"
+      const lastCode = scannedCodes.length ? scannedCodes[scannedCodes.length - 1] : null;
+      if (lastCode) {
+        await sendCodeToBackend(lastCode);
+      }
       waitingForUser = false;
       setStatus('Listo para leer el siguiente código');
       actionButtonsEl.style.display = 'none';
     };
+
     finishBtn.onclick = () => {
       if (quaggaStarted) {
         Quagga.stop();
@@ -386,6 +402,7 @@
         document.getElementById('video').innerHTML = '';
       }
     };
+
     log('✅ Listo');
   </script>
 </body>
