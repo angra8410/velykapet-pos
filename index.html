@@ -230,7 +230,7 @@
         if (!result || !result.codeResult || !result.codeResult.code) return;
         const code = result.codeResult.code;
         const format = result.codeResult.format;
-        log('Intento de lectura: ' + code + ' (' + format + ')');
+        // Puedes aceptar todos los formatos aquí, o filtrar por longitud si quieres
         handleDetectedCode(code, format);
       });
     };
