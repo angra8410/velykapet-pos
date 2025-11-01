@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
+    /* ... igual que antes ... */
     body { font-family: Arial, Helvetica, sans-serif; margin:0; padding:0; background:#fff;}
     .main-wrap { max-width: 720px; margin: 24px auto 0 auto; padding: 0 12px; }
     h2 { text-align:center; margin-bottom:32px; font-size:2rem; font-weight:600; }
@@ -23,6 +24,7 @@
     #last { font-weight:600; font-size:15px;}
     #codes-list { padding:8px; background:#f5f5f5; border-radius:6px; margin-bottom:14px; font-size:14px; max-height:90px; overflow-y:auto; font-family:monospace;}
     #log { padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:13px; white-space:pre-wrap; border-radius:6px;}
+    #select-code { font-size:16px; padding:6px 12px; margin-right:12px; }
     footer { color:#666; font-size:13px; text-align:center; margin-top:15px; margin-bottom:24px;}
     @media (max-width:800px) { .main-wrap, #status, #last, #log, footer { max-width:95vw;} #video-box { height:200px;} }
     @media (max-width:500px) { #controls, #action-buttons { flex-direction:column; gap:8px;} #video-box { height:140px;} h2 { font-size:1.15rem;} }
@@ -49,7 +51,8 @@
     </div>
     <!-- Botones de acción aparecen tras leer código -->
     <div id="action-buttons">
-      <button id="nextCodeBtn">Leer otro código</button>
+      <select id="select-code"></select>
+      <button id="nextCodeBtn">Enviar código y leer otro</button>
       <button id="finishBtn">Finalizar lectura</button>
     </div>
     <div id="codes-list"></div>
@@ -84,13 +87,14 @@
     const nextCodeBtn = document.getElementById('nextCodeBtn');
     const finishBtn = document.getElementById('finishBtn');
     const actionButtonsEl = document.getElementById('action-buttons');
+    const selectCodeEl = document.getElementById('select-code');
     let beepOn = true;
     let sending = false;
     let lastScanned = null;
     let lastTime = 0;
     let waitingForUser = false;
     let scannedCodes = [];
-    let lastCodeToSend = null;
+    let codesDetected = []; // <--- Aquí guardamos los códigos detectados
     const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
 
@@ -145,25 +149,36 @@
       } finally { sending = false; }
     }
 
+    function updateSelectDetected() {
+      // Remueve duplicados por ciclo, muestra formato
+      const uniqueCodes = [];
+      selectCodeEl.innerHTML = '';
+      codesDetected.forEach(item => {
+        if (!uniqueCodes.find(c => c.code === item.code)) {
+          uniqueCodes.push(item);
+          const opt = document.createElement('option');
+          opt.value = item.code;
+          opt.textContent = `${item.code} (${item.format})`;
+          selectCodeEl.appendChild(opt);
+        }
+      });
+    }
+
     function handleDetectedCode(code, format) {
       if (waitingForUser) {
+        codesDetected.push({ code, format });
+        updateSelectDetected();
         log('Esperando acción del usuario, ignorando código: ' + code);
         return;
       }
-      const now = Date.now();
-      if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
-        log('duplicado ignorado: ' + code);
-        return;
-      }
-      lastScanned = code; lastTime = now;
+      // Primer código del ciclo
+      codesDetected = [{ code, format }];
+      updateSelectDetected();
       setLast(code);
       playBeep();
-      scannedCodes.push(code);
-      lastCodeToSend = code;
-      renderCodesList();
-      setStatus('Código leído: ' + code + ' (' + format + '). Confirma si quieres continuar.');
+      setStatus('Códigos detectados: selecciona el correcto y confirma.');
       waitingForUser = true;
-      actionButtonsEl.style.display = 'flex'; // <-- Aquí se muestran los botones tras leer el código
+      actionButtonsEl.style.display = 'flex';
     }
 
     startBtn.onclick = () => {
@@ -195,8 +210,8 @@
         quaggaStarted = true;
         waitingForUser = false;
         scannedCodes = [];
-        lastCodeToSend = null;
-        renderCodesList();
+        codesDetected = [];
+        selectCodeEl.innerHTML = '';
         setLast('—');
         setStatus('Cámara activa (QuaggaJS). Apunta al código.');
         startBtn.disabled = true;
@@ -232,10 +247,15 @@
     };
 
     nextCodeBtn.onclick = async () => {
-      if (lastCodeToSend) {
-        await sendCodeToBackend(lastCodeToSend);
-        lastCodeToSend = null;
+      // El usuario elige el código a enviar
+      const selectedCode = selectCodeEl.value;
+      if (selectedCode) {
+        scannedCodes.push(selectedCode);
+        renderCodesList();
+        await sendCodeToBackend(selectedCode);
       }
+      codesDetected = [];
+      selectCodeEl.innerHTML = '';
       waitingForUser = false;
       setStatus('Listo para leer el siguiente código');
       actionButtonsEl.style.display = 'none';
