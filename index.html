@@ -71,6 +71,7 @@
   let lastTime = 0;
   const DUPLICATE_DELAY = 1000;
   let quaggaStarted = false;
+  let globalStream = null; // <--- Guarda el stream aquí
 
   function playBeep() {
     if (!beepOn) return;
@@ -148,6 +149,7 @@
       .then(function(stream) {
         log('Permiso de cámara OK, stream iniciado');
         setStatus('Permiso de cámara OK, iniciando Quagga...');
+        globalStream = stream; // <--- Guarda el stream
         stream.getTracks().forEach(track => track.stop());
         iniciarQuagga();
       })
@@ -190,6 +192,16 @@
         setStatus('Error QuaggaJS: ' + JSON.stringify(err));
         return;
       }
+      // Guarda el stream del video que Quagga usa
+      setTimeout(() => {
+        try {
+          const videoElem = document.querySelector('#video video');
+          if (videoElem && videoElem.srcObject) {
+            globalStream = videoElem.srcObject;
+            log('Stream guardado desde Quagga videoElem');
+          }
+        } catch(e) { log('Error guardando stream: ' + e); }
+      }, 1000);
       Quagga.start();
       quaggaStarted = true;
       setStatus('Cámara activa (QuaggaJS). Apunta al código.');
@@ -213,17 +225,30 @@
       log('QuaggaJS detenido');
       setStatus('Detenido');
 
-      // Apagado forzado de TODOS los videos en la página
+      // Detiene el stream guardado globalmente
+      if (globalStream) {
+        try {
+          globalStream.getTracks().forEach(track => {
+            track.stop();
+            log('Track detenido (globalStream): ' + track.kind);
+          });
+          globalStream = null;
+          log('globalStream seteado a null.');
+        } catch(e) {
+          log('Error al detener globalStream: ' + e);
+        }
+      }
+
+      // Además, recorre y remueve todos los videos por si hay más
       try {
         const videos = document.querySelectorAll('video');
         videos.forEach(v => {
           if (v.srcObject) {
             v.srcObject.getTracks().forEach(track => {
               track.stop();
-              log('Track detenido: ' + track.kind);
+              log('Track detenido (videoElem): ' + track.kind);
             });
             v.srcObject = null;
-            log('srcObject seteado a null.');
           }
           if (v.parentNode) v.parentNode.removeChild(v);
         });
