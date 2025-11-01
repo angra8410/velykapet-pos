@@ -14,7 +14,7 @@
     #status { margin-top:8px; color:#222; word-break:break-word; }
     #last { margin-top:6px; font-weight:600; }
     .small { font-size:13px; color:#666; }
-    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
+    #log { margin-top:8px; padding:8px; border:1px solid #333; background:#000; color:#0f0; max-height:300px; overflow:auto; font-family:monospace; font-size:11px; white-space:pre-wrap; }
     footer { margin-top:12px; color:#666; font-size:13px; }
   </style>
 </head>
@@ -60,7 +60,13 @@
 
   // UI helpers
   const logEl = document.getElementById('log');
-  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
+  function log(msg) { 
+    console.log(msg); 
+    if (logEl) { 
+      const timestamp = new Date().toISOString().substring(11, 23);
+      logEl.textContent = '[' + timestamp + '] ' + msg + '\n' + logEl.textContent.substring(0, 1000); 
+    } 
+  }
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
@@ -231,69 +237,117 @@
     stopBtn.disabled = true;
   }
 
-  // ---- Reemplaza tu handler actual por este ----
+  // ========== FIXED FUNCTIONS ==========
+  
+  // Fetch con timeout
+  function fetchWithTimeout(url, options, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Timeout después de ' + timeoutMs + 'ms'));
+      }, timeoutMs);
+      
+      fetch(url, options)
+        .then(response => {
+          clearTimeout(timer);
+          resolve(response);
+        })
+        .catch(err => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  }
 
-  // convierte payload a form-encoded y hace POST con retry
-  async function postMovementForm(payload, attempts = 2) {
+  // POST con reintentos, timeout y logs detallados
+  async function postMovementForm(payload, attempts = 3, timeoutMs = 10000) {
     const url = WEBAPP_URL;
     const params = new URLSearchParams();
     for (const k in payload) {
-      if (payload.hasOwnProperty(k) && payload[k] !== undefined) {
+      if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) {
         params.append(k, String(payload[k]));
       }
     }
 
+    log('📤 Payload: ' + JSON.stringify(payload));
+
     let lastErr = null;
     for (let i = 1; i <= attempts; i++) {
       try {
-        const res = await fetch(url, {
+        log('🔄 Intento ' + i + '/' + attempts + ' -> POST ' + url);
+        
+        const res = await fetchWithTimeout(url, {
           method: 'POST',
-          body: params, // URLSearchParams -> application/x-www-form-urlencoded
+          body: params,
           cache: 'no-store',
-        });
+          mode: 'cors',
+          credentials: 'omit',
+          redirect: 'follow'
+        }, timeoutMs);
+        
+        log('✅ HTTP ' + res.status + ' ' + res.statusText);
         const text = await res.text();
-        try { return JSON.parse(text); } catch (e) { return text; }
+        log('📥 Respuesta: ' + text.substring(0, 100));
+        
+        try { return JSON.parse(text); } catch(e) { return text; }
       } catch (err) {
         lastErr = err;
-        console.warn('postMovementForm attempt', i, 'failed:', err);
-        await new Promise(r => setTimeout(r, 200 * i));
+        const errMsg = err.message || err.toString();
+        log('❌ Error intento ' + i + ': ' + errMsg);
+        
+        if (i < attempts) {
+          const waitTime = 250 * i;
+          log('⏳ Esperando ' + waitTime + 'ms...');
+          await new Promise(r => setTimeout(r, waitTime));
+        }
       }
     }
     throw lastErr;
   }
 
-  // improved handler: prevents overlap, uses form-encoded, always clears sending flag
+  // Handler mejorado con protección contra race conditions
   let sending = false;
   async function handleDetectedCode(code) {
-    if (sending) { log('Previous send in progress, ignoring scan'); return; }
+    if (sending) { 
+      log('⚠️ Envío anterior en progreso, ignorando'); 
+      return; 
+    }
 
     const now = Date.now();
     if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
-      log('duplicate ignored: ' + code);
+      log('⚠️ Duplicado ignorado: ' + code);
       return;
     }
-    lastScanned = code; lastTime = now;
+    
+    lastScanned = code; 
+    lastTime = now;
     setLast(code);
     playBeep();
 
     const cantidad = Number(cantidadEl.value) || 1;
     const tipo = tipoEl.value || 'entrada';
-    const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
+    const payload = { 
+      barcode: String(code), 
+      cantidad: cantidad, 
+      tipo: tipo, 
+      usuario: 'camera', 
+      token: TOKEN 
+    };
 
-    sending = true;
-    setStatus('Enviando ' + code + ' ...');
-    log('Enviando payload (form): ' + JSON.stringify(payload));
+    sending = true; // BLOQUEAR
+    setStatus('📡 Enviando ' + code + '...');
+    log('🎯 Código detectado: ' + code);
 
     try {
-      const result = await postMovementForm(payload, 2);
-      log('Respuesta del servidor: ' + JSON.stringify(result));
-      setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
+      const result = await postMovementForm(payload, 3, 10000);
+      log('✅ Envío exitoso: ' + JSON.stringify(result));
+      setStatus((result && result.ok) ? '✅ Enviado OK' : '⚠️ Respuesta con errores');
     } catch (err) {
-      log('All form attempts failed: ' + err);
-      setStatus('Error enviando: ' + err);
+      const errMsg = err.message || err.toString();
+      log('❌ ERROR FINAL: ' + errMsg);
+      setStatus('❌ Error: ' + errMsg);
     } finally {
-      // importante: siempre liberar el flag para evitar bloqueos
-      sending = false;
+      sending = false; // LIBERAR SIEMPRE
+      log('🔓 Listo para siguiente escaneo');
     }
   }
 
@@ -323,6 +377,14 @@
   stopBtn.addEventListener('click', stopAll);
   beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
+  // Test manual desde consola
+  window.testScannerPost = function(testCode) {
+    testCode = testCode || 'TEST-' + Date.now();
+    log('🧪 TEST MANUAL iniciado con código: ' + testCode);
+    handleDetectedCode(testCode);
+  };
+
+  log('✅ Scanner inicializado. Para test manual ejecuta: testScannerPost()');
   console.log('client diagnostic: getUserMedia=' + hasGetUserMedia + ' BarcodeDetector=' + hasBarcodeDetector + ' ZXing=' + !!(window.__ZXING_LOADED));
   </script>
 </body>
