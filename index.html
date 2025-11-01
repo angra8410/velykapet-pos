@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Scanner cámara — Velykapet POS</title>
+  <title>Escáner QuaggaJS — Velykapet POS</title>
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
     #video-container { width: 100%; max-width: 720px; margin: 0 auto; display:flex; flex-direction:column; gap:8px; }
@@ -16,11 +16,13 @@
     #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
     footer { margin-top:12px; color:#666; font-size:13px; }
   </style>
+  <!-- Incluye QuaggaJS desde CDN -->
+  <script src="https://unpkg.com/@ericblade/quagga2@1.2.8/dist/quagga.js"></script>
 </head>
 <body>
-  <h2>Escáner con cámara (mobile)</h2>
+  <h2>Escáner con cámara (QuaggaJS)</h2>
   <div id="video-container">
-    <video id="video" autoplay muted playsinline></video>
+    <div id="video"></div>
     <div id="controls">
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
@@ -41,7 +43,7 @@
     <div id="log"></div>
   </div>
   <footer>
-    Nota: En esta versión el escaneo SIEMPRE usa ZXing (no BarcodeDetector). Si no lee, revisa luz, distancia y tipo de código.
+    Nota: Este escáner usa QuaggaJS, que detecta EAN-13, UPC, Code128 y más. Prueba con productos comunes y QR.
   </footer>
   <script>
   // CONFIGURA AQUÍ:
@@ -60,42 +62,17 @@
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
-  // ZXing loader (CDN, versión correcta)
-  (function loadZXing(cb) {
-    var urls = [
-      'https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js',
-      'https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js'
-    ];
-    function tryLoad(i) {
-      if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
-      var s = document.createElement('script');
-      s.src = urls[i];
-      s.onload = function(){ console.log('ZXing loaded from', urls[i]); cb(null, urls[i]); };
-      s.onerror = function(){ console.warn('Failed to load ZXing from', urls[i]); tryLoad(i+1); };
-      document.head.appendChild(s);
-    }
-    tryLoad(0);
-  })(function(err, url) { window.__ZXING_LOADED = !err; if (!err) window.__ZXING_SRC = url; });
-
-  // Elements
-  const videoEl = document.getElementById('video');
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
   const tipoEl = document.getElementById('tipo');
   const cantidadEl = document.getElementById('cantidad');
   const beepBtn = document.getElementById('beepBtn');
+  let beepOn = true;
 
-  const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-  log('getUserMedia supported: ' + hasGetUserMedia);
-
-  // State
-  let codeReader = null;
+  let sending = false;
   let lastScanned = null;
   let lastTime = 0;
   const DUPLICATE_DELAY = 1000;
-  let beepOn = true;
-  let localStream = null;
 
   function playBeep() {
     if (!beepOn) return;
@@ -113,66 +90,6 @@
     } catch(e) { log('Audio error: ' + e); }
   }
 
-  function getBrowserMultiFormatReader() {
-    const ns = window.ZXing;
-    if (!ns) return null;
-    return ns.BrowserMultiFormatReader;
-  }
-
-  // ZXing flow (CDN ONLY, BarcodeDetector IGNORADO)
-  async function startZXingFlow() {
-    log('startZXingFlow called');
-    const BrowserMultiFormatReader = getBrowserMultiFormatReader();
-    if (!BrowserMultiFormatReader) {
-      log('ZXing constructor not found.');
-      setStatus('ZXing no disponible');
-      return false;
-    }
-    setStatus('Solicitando cámara (ZXing)...');
-    try {
-      codeReader = new BrowserMultiFormatReader();
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputs = devices.filter(d => d.kind === 'videoinput');
-      log('video inputs: ' + videoInputs.map(d => d.label || d.deviceId).join(', '));
-      const back = videoInputs.find(d => /back|rear|traseira|trasero|environment/i.test(d.label)) || videoInputs[0];
-      const selectedId = back ? back.deviceId : (videoInputs[0] && videoInputs[0].deviceId);
-      if (!selectedId) {
-        log('No video device found');
-        setStatus('No se encontró dispositivo de video');
-        return false;
-      }
-      await codeReader.decodeFromVideoDevice(selectedId, videoEl, (result, err) => {
-        if (result) {
-          log('Código ZXing detectado: ' + result.getText());
-          handleDetectedCode(result.getText());
-        } else if (err && err.name !== 'NotFoundException') {
-          console.debug('ZXing err', err);
-          log('ZXing error: ' + err);
-        }
-      });
-      setStatus('Cámara activa (ZXing). Apunta al código.');
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      return true;
-    } catch (err) {
-      log('Error ZXing flow: ' + err);
-      setStatus('Error ZXing: ' + (err && err.message ? err.message : err));
-      return false;
-    }
-  }
-
-  function stopAll() {
-    try { if (codeReader) codeReader.reset(); } catch(e){ }
-    codeReader = null;
-    try { if (localStream && localStream.getTracks) localStream.getTracks().forEach(t => t.stop()); } catch(e){}
-    localStream = null;
-    videoEl.srcObject = null;
-    setStatus('Detenido');
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-  }
-
-  // ====== ENVÍO FORM-ENCODED, NO JSON ======
   async function postMovementForm(payload, attempts = 2) {
     const url = WEBAPP_URL;
     const params = new URLSearchParams();
@@ -201,7 +118,6 @@
     throw lastErr;
   }
 
-  let sending = false;
   async function handleDetectedCode(code) {
     if (sending) { log('Envío previo en curso, ignorando'); return; }
     const now = Date.now();
@@ -227,22 +143,84 @@
     }
   }
 
-  async function startScanner() {
-    log('startScanner called');
-    if (!hasGetUserMedia) { setStatus('getUserMedia no soportado'); return; }
-    // BarcodeDetector ignorado, solo ZXing
-    if (window.__ZXING_LOADED || (window.ZXing)) {
-      const ok2 = await startZXingFlow();
-      if (ok2) return;
-      log('ZXing fallback failed');
-    } else {
-      log('ZXing not loaded from CDNs; cannot start ZXing fallback');
+  let quaggaStarted = false;
+
+  function startQuagga() {
+    if (quaggaStarted) {
+      log('QuaggaJS ya estaba iniciado');
+      return;
     }
-    setStatus('No fue posible iniciar un escáner. Revisa el log y los permisos.');
+    log('Iniciando QuaggaJS...');
+    setStatus('Solicitando cámara (QuaggaJS)...');
+    Quagga.init({
+      inputStream: {
+        name: "Live",
+        type: "LiveStream",
+        target: document.querySelector('#video'),
+        constraints: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      },
+      decoder: {
+        readers: [
+          "ean_reader",
+          "ean_8_reader",
+          "upc_reader",
+          "upc_e_reader",
+          "code_128_reader",
+          "code_39_reader",
+          "code_39_vin_reader",
+          "codabar_reader",
+          "i2of5_reader",
+          "2of5_reader",
+          "code_93_reader"
+        ]
+      },
+      locate: true,
+      numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
+    }, function(err) {
+      if (err) {
+        log('QuaggaJS init error: ' + err);
+        setStatus('Error QuaggaJS: ' + err);
+        return;
+      }
+      Quagga.start();
+      quaggaStarted = true;
+      setStatus('Cámara activa (QuaggaJS). Apunta al código.');
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      log('QuaggaJS iniciado');
+    });
+
+    Quagga.onDetected(function(result) {
+      if (!result || !result.codeResult || !result.codeResult.code) return;
+      const code = result.codeResult.code;
+      log('Código detectado: ' + code + ' (' + result.codeResult.format + ')');
+      handleDetectedCode(code);
+    });
+
+    Quagga.onProcessed(function(result) {
+      // Puedes agregar overlays/diagnóstico aquí si quieres
+    });
   }
 
-  startBtn.addEventListener('click', startScanner);
-  stopBtn.addEventListener('click', stopAll);
+  function stopQuagga() {
+    if (quaggaStarted) {
+      Quagga.stop();
+      quaggaStarted = false;
+      log('QuaggaJS detenido');
+    }
+    setStatus('Detenido');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    // Limpia el video
+    document.querySelector('#video').innerHTML = '';
+  }
+
+  startBtn.addEventListener('click', startQuagga);
+  stopBtn.addEventListener('click', stopQuagga);
   beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
   window.testScannerPost = function(testCode) {
