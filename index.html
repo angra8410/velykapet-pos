@@ -61,6 +61,7 @@
     </footer>
   </div>
   <script>
+    // ... igual que antes, pero con más readers y resolución baja ...
     const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
     const TOKEN = '';
     const logEl = document.getElementById('log');
@@ -162,7 +163,7 @@
       }
     }
 
-    function handleDetectedCode(code) {
+    function handleDetectedCode(code, format) {
       if (waitingForUser) {
         log('Esperando acción del usuario, ignorando código: ' + code);
         return;
@@ -178,7 +179,7 @@
       scannedCodes.push(code);
       lastCodeToSend = code;
       renderCodesList();
-      setStatus('Código leído: ' + code + '. Confirma si quieres continuar.');
+      setStatus('Código leído: ' + code + ' (' + format + '). Confirma si quieres continuar.');
       waitingForUser = true;
       actionButtonsEl.style.display = 'flex';
     }
@@ -191,13 +192,17 @@
           target: document.querySelector('#video'),
           constraints: {
             facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 640 },         // Menor resolución para móviles
+            height: { ideal: 480 }
           }
         },
         decoder: {
           readers: [
-            "ean_reader"
+            "ean_reader",
+            "ean_8_reader",
+            "upc_reader",
+            "upc_e_reader",
+            "code_128_reader"
           ]
         },
         locate: true,
@@ -220,12 +225,10 @@
       Quagga.onDetected(function (result) {
         if (!result || !result.codeResult || !result.codeResult.code) return;
         const code = result.codeResult.code;
-        // Solo acepta EAN-13
-        if (result.codeResult.format !== "ean_13" || code.length !== 13) {
-          log('Código ignorado (no EAN-13): ' + code + ' (' + result.codeResult.format + ')');
-          return;
-        }
-        handleDetectedCode(code);
+        const format = result.codeResult.format;
+        log('Intento de lectura: ' + code + ' (' + format + ')');
+        // Puedes filtrar por formato aquí si quieres solo EAN13, pero ahora acepta varios
+        handleDetectedCode(code, format);
       });
     };
 
@@ -248,7 +251,6 @@
     };
 
     nextCodeBtn.onclick = async () => {
-      // Solo enviar el último código leído al backend cuando el usuario pulse "Leer otro código"
       if (lastCodeToSend) {
         await sendCodeToBackend(lastCodeToSend);
         lastCodeToSend = null;
