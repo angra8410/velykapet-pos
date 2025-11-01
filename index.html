@@ -2,40 +2,101 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Demo QuaggaJS</title>
+  <title>Escáner QuaggaJS — Velykapet POS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
+    #video-container { width: 100%; max-width: 720px; margin: 0 auto; }
+    #video { width:100%; height:360px; border:1px solid #ddd; background:#000; object-fit:cover; }
+    #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center; margin:14px 0 0 0; }
+    button { padding:8px 12px; font-size:14px; }
+    #status { margin-top:8px; color:#222; word-break:break-word; }
+    #last { margin-top:6px; font-weight:600; }
+    .small { font-size:13px; color:#666; }
+    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
+    footer { margin-top:12px; color:#666; font-size:13px; }
+  </style>
 </head>
 <body>
-  <div id="video"></div>
-  <button id="startBtn">Iniciar</button>
-  <button id="stopBtn" disabled>Detener</button>
+  <h2>Escáner con cámara (QuaggaJS v1)</h2>
+  <div id="video-container">
+    <div id="video"></div>
+  </div>
+  <div id="controls">
+    <button id="startBtn">Iniciar cámara</button>
+    <button id="stopBtn" disabled>Detener</button>
+    <label class="small">Tipo:
+      <select id="tipo">
+        <option value="entrada">entrada (sumar)</option>
+        <option value="venta" selected>venta (restar)</option>
+        <option value="ajuste">ajuste</option>
+      </select>
+    </label>
+    <label class="small">Cantidad:
+      <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px"/>
+    </label>
+    <button id="beepBtn">Pitido ON</button>
+  </div>
+  <div id="status">Estado: detenido</div>
+  <div id="last">Último barcode: <span id="lastCode">—</span></div>
+  <div id="log"></div>
+  <footer>
+    Nota: Si hay error, se mostrará en el log.
+  </footer>
   <script>
+    // Tu código JS aquí (igual que antes, solo cambia la estructura HTML y CSS)
     let quaggaStarted = false;
+    function log(msg) {
+      const logEl = document.getElementById('log');
+      if (logEl) {
+        logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      console.log(msg);
+    }
+    function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
+    function setLast(code) { document.getElementById('lastCode').textContent = code; }
+
     document.getElementById('startBtn').onclick = () => {
       Quagga.init({
         inputStream: {
           name: "Live",
           type: "LiveStream",
           target: document.querySelector('#video'),
-          constraints: { facingMode: "environment" }
+          constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
         },
         decoder: { readers: ["ean_reader", "code_128_reader"] }
       }, function(err) {
-        if (err) { alert(err); return; }
+        if (err) { log(err); return; }
         Quagga.start();
         quaggaStarted = true;
+        setStatus('Cámara activa');
         document.getElementById('startBtn').disabled = true;
         document.getElementById('stopBtn').disabled = false;
+        log('QuaggaJS iniciado');
+      });
+      Quagga.onDetected(function(result) {
+        if (!result || !result.codeResult || !result.codeResult.code) return;
+        setLast(result.codeResult.code);
+        log('Código detectado: ' + result.codeResult.code + ' (' + result.codeResult.format + ')');
       });
     };
     document.getElementById('stopBtn').onclick = () => {
       if (quaggaStarted) {
         Quagga.stop();
         quaggaStarted = false;
+        setStatus('Detenido');
         document.getElementById('startBtn').disabled = false;
         document.getElementById('stopBtn').disabled = true;
+        log('QuaggaJS detenido');
       }
     };
+    document.getElementById('beepBtn').onclick = () => {
+      beepOn = !beepOn;
+      document.getElementById('beepBtn').textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
+    };
+    log('✅ Listo');
   </script>
 </body>
 </html>
