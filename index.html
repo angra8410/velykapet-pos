@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Scanner cámara — Velykapet POS</title>
+
+  <!-- ZXing browser bundle (via CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.0.11/umd/index.min.js"></script>
+
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; }
+    #video-container { width: 100%; max-width: 720px; margin: 0 auto; display:flex; flex-direction:column; gap:8px; }
+    #video { width:100%; height:auto; border:1px solid #ddd; background:#000; }
+    #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    button { padding:8px 12px; font-size:14px; }
+    #status { margin-top:8px; color:#222; word-break:break-word; }
+    #last { margin-top:6px; font-weight:600; }
+    .small { font-size:13px; color:#666; }
+  </style>
+</head>
+<body>
+  <h2>Escáner con cámara (mobile)</h2>
+  <div id="video-container">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="controls">
+      <button id="startBtn">Iniciar cámara</button>
+      <button id="stopBtn" disabled>Detener</button>
+      <label class="small">Tipo:
+        <select id="tipo">
+          <option value="entrada">entrada (sumar)</option>
+          <option value="venta" selected>venta (restar)</option>
+          <option value="ajuste">ajuste</option>
+        </select>
+      </label>
+      <label class="small">Cantidad:
+        <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px"/>
+      </label>
+      <button id="beepBtn">Pitido ON</button>
+    </div>
+
+    <div id="status">Estado: detenido</div>
+    <div id="last">Último barcode: <span id="lastCode">—</span></div>
+  </div>
+
+  <script>
+  // CONFIGURA AQUÍ:
+  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- reemplaza con tu Web App URL
+  const TOKEN = ''; // si usas EXPECTED_TOKEN en config.gs, ponlo aquí
+
+  // Opciones: intervalo mínimo entre mismos scans para evitar duplicados (ms)
+  const DUPLICATE_DELAY = 800; 
+
+  // ZXing objects
+  const { BrowserMultiFormatReader, NotFoundException } = window.ZXingBrowser || window.ZXing;
+  let codeReader = null;
+  let selectedDeviceId = null;
+  let lastScanned = null;
+  let lastTime = 0;
+  let beepEnabled = true;
+  let mediaStream = null;
+
+  const videoElement = document.getElementById('video');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const statusEl = document.getElementById('status');
+  const lastCodeEl = document.getElementById('lastCode');
+  const tipoEl = document.getElementById('tipo');
+  const cantidadEl = document.getElementById('cantidad');
+  const beepBtn = document.getElementById('beepBtn');
+
+  function updateStatus(txt) { statusEl.textContent = 'Estado: ' + txt; }
+  function setLast(code) { lastCodeEl.textContent = code; }
+
+  function playBeep() {
+    if (!beepEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 1000;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(0);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+      setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  async function startScanner() {
+    if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
+      updateStatus('Tu navegador no soporta cámara.');
+      return;
+    }
+    updateStatus('Iniciando cámara...');
+    codeReader = new BrowserMultiFormatReader();
+
+    try {
+      // Prefer rear camera on mobile if available
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(d => d.kind === 'videoinput');
+      if (videoInputs.length === 0) throw new Error('No video input devices found');
+
+      // Seleccionar la cámara trasera si existe (label may contain "back" / "rear")
+      const back = videoInputs.find(d => /rear|back|traseira|trasero/i.test(d.label));
+      selectedDeviceId = back ? back.deviceId : videoInputs[0].deviceId;
+
+      // Start continuous decode from video element
+      const hints = new Map(); // usar por defecto
+      codeReader.reset();
+      // startContinuousDecodeFromVideoDevice returns a promise that resolves when streaming starts
+      await codeReader.decodeFromVideoDevice(selectedDeviceId, videoElement, (result, err) => {
+        if (result) {
+          handleScan(result.getText());
+        } else if (err && !(err instanceof NotFoundException)) {
+          // Ignorar NotFoundException (cuando no detecta), loguear otros errores
+          console.debug('ZXing err', err);
+        }
+      });
+      updateStatus('Cámara activa. Apunta al código.');
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    } catch (err) {
+      console.error(err);
+      updateStatus('Error al iniciar cámara: ' + (err.message || err));
+    }
+  }
+
+  function stopScanner() {
+    if (codeReader) {
+      try { codeReader.reset(); } catch(e){/*ignore*/}
+      codeReader = null;
+    }
+    // Stop media tracks if any
+    try {
+      const s = videoElement.srcObject;
+      if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
+    } catch(e){}
+    videoElement.srcObject = null;
+    updateStatus('Detenido');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  }
+
+  function handleScan(code) {
+    const now = Date.now();
+    // evitar duplicados muy seguidos
+    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) return;
+    lastScanned = code;
+    lastTime = now;
+    setLast(code);
+    playBeep();
+
+    // leer cantidad/tipo desde UI
+    const cantidad = Number(cantidadEl.value) || 1;
+    const tipo = tipoEl.value || 'entrada';
+
+    // enviar payload al WebApp
+    const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
+
+    updateStatus('Enviando ' + code + ' ...');
+    fetch(WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(j => {
+      updateStatus('Respuesta: ' + (j && j.ok ? 'OK' : 'ERROR') + (j && j.inventory ? ' — stock: ' + (j.inventory.to || j.inventory.stock || '') : ''));
+      console.log('response', j);
+    })
+    .catch(err => {
+      updateStatus('Error enviando: ' + err);
+      console.error(err);
+    });
+  }
+
+  // UI events
+  startBtn.addEventListener('click', startScanner);
+  stopBtn.addEventListener('click', stopScanner);
+  beepBtn.addEventListener('click', () => {
+    beepEnabled = !beepEnabled;
+    beepBtn.textContent = beepEnabled ? 'Pitido ON' : 'Pitido OFF';
+  });
+
+  // Auto-start on mobile optional:
+  // window.addEventListener('load', () => { if (/Mobi|Android/i.test(navigator.userAgent)) startScanner(); });
+
+  // Clean up when page unloads
+  window.addEventListener('unload', stopScanner);
+  </script>
+</body>
+</html>
