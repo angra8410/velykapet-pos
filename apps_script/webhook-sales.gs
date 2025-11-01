@@ -2,26 +2,19 @@
  * webhook-sales.gs
  * Web endpoint (doPost) para recibir ventas desde el cliente mobile y añadirlas a "movimientos".
  *
- * POST JSON esperado:
- * {
- *   "barcode": "7801234567890",
- *   "cantidad": 1,
- *   "tipo": "venta",
- *   "usuario": "caja1",
- *   "token": "mi-secreto-si-lo-deseas"
- * }
+ * No definir constantes aquí — se leen desde config.gs
  *
- * Publicar como Web App (Deploy -> New deployment -> Web app)
- * - Execute as: Me
- * - Who has access: Anyone with link (o Anyone, even anonymous) — o restringir via token
+ * Nota:
+ * - Esta versión asume que existe la función applyMovementToInventory(barcode, cantidad, tipo)
+ *   en otro archivo (por ejemplo inventory-sync.gs) o puedes copiarla aquí si prefieres.
+ * - Asegúrate de tener config.gs con las constantes:
+ *     MOVIMIENTOS_SHEET_NAME, INVENTORY_SHEET_NAME, LOG_SHEET_NAME, EXPECTED_TOKEN
  */
-
-const MOVIMIENTOS_SHEET_NAME = 'movimientos';
 
 function doPost(e) {
   try {
     var data;
-    if (e.postData && e.postData.type === "application/json") {
+    if (e.postData && e.postData.type && e.postData.type.indexOf("application/json") !== -1) {
       data = JSON.parse(e.postData.contents);
     } else if (e.parameter && Object.keys(e.parameter).length) {
       data = e.parameter;
@@ -29,9 +22,8 @@ function doPost(e) {
       return jsonResponse({ ok: false, error: "No data" });
     }
 
-    // Opcional: validar token
-    var EXPECTED_TOKEN = ''; // PONER token si querés (ej: 'mipase')
-    if (EXPECTED_TOKEN && data.token !== EXPECTED_TOKEN) {
+    // Validar token simple (desde config.gs)
+    if (typeof EXPECTED_TOKEN !== 'undefined' && EXPECTED_TOKEN && data.token !== EXPECTED_TOKEN) {
       return jsonResponse({ ok: false, error: "Invalid token" });
     }
 
@@ -50,7 +42,19 @@ function doPost(e) {
     var newRow = ['', fecha, barcode, '', '', cantidad, tipo, usuario];
     ms.appendRow(newRow);
 
-    return jsonResponse({ ok: true });
+    // intentar actualizar inventory inmediatamente si la función existe
+    try {
+      if (typeof applyMovementToInventory === 'function') {
+        var res = applyMovementToInventory(barcode, cantidad, tipo);
+        return jsonResponse({ ok: true, inventory: res || { ok: true } });
+      } else {
+        // Si no existe la función, devolvemos ok pero con advertencia
+        return jsonResponse({ ok: true, warning: 'movement saved but applyMovementToInventory not defined' });
+      }
+    } catch (err) {
+      // movimiento guardado, pero ocurrió un error al actualizar inventory
+      return jsonResponse({ ok: true, warning: 'movement saved but inventory update failed: ' + err.toString() });
+    }
   } catch (err) {
     return jsonResponse({ ok: false, error: err.toString() });
   }
