@@ -60,11 +60,11 @@
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
-  // ZXing fallback loader (CDN)
+  // ZXing fallback loader (CDN, versión correcta)
   (function loadZXing(cb) {
     var urls = [
-      'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
-      'https://unpkg.com/@zxing/browser/umd/index.min.js'
+      'https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js',
+      'https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js'
     ];
     function tryLoad(i) {
       if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
@@ -118,9 +118,9 @@
   }
 
   function getBrowserMultiFormatReader() {
-    const ns = window.ZXingBrowser || window.ZXing;
+    const ns = window.ZXing;
     if (!ns) return null;
-    return ns.BrowserMultiFormatReader || ns.BrowserMultiFormatReader;
+    return ns.BrowserMultiFormatReader;
   }
 
   // BarcodeDetector flow (native)
@@ -152,6 +152,7 @@
 
       async function detectLoop() {
         if (!localStream || !videoEl || videoEl.paused || videoEl.ended) {
+          log('Video detenido o stream no disponible');
           return;
         }
         try {
@@ -159,13 +160,18 @@
           canvas.height = videoEl.videoHeight;
           ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
           const img = ctx.getImageData(0,0,canvas.width, canvas.height);
+          log('Frame capturado: ' + canvas.width + 'x' + canvas.height);
           const detections = await detector.detect(img);
+          log('Detections length: ' + (detections ? detections.length : 0));
           if (detections && detections.length) {
             const code = detections[0].rawValue;
+            log('Código detectado: ' + code);
             handleDetectedCode(code);
             await new Promise(r=>setTimeout(r, 300));
           }
-        } catch (err) { /* ignore detector runtime errors */ }
+        } catch (err) {
+          log('Detector error: ' + err);
+        }
         requestAnimationFrame(detectLoop);
       }
       requestAnimationFrame(detectLoop);
@@ -198,9 +204,11 @@
       }
       await codeReader.decodeFromVideoDevice(selectedId, videoEl, (result, err) => {
         if (result) {
+          log('Código ZXing detectado: ' + result.getText());
           handleDetectedCode(result.getText());
         } else if (err && err.name !== 'NotFoundException') {
           console.debug('ZXing err', err);
+          log('ZXing error: ' + err);
         }
       });
       setStatus('Cámara activa (ZXing). Apunta al código.');
@@ -288,7 +296,7 @@
       if (ok) return;
       log('BarcodeDetector fallback failed, trying ZXing');
     }
-    if (window.__ZXING_LOADED || (window.ZXingBrowser || window.ZXing)) {
+    if (window.__ZXING_LOADED || (window.ZXing)) {
       const ok2 = await startZXingFlow();
       if (ok2) return;
       log('ZXing fallback failed');
