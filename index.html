@@ -5,35 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Scanner cámara — Velykapet POS</title>
 
-  <!-- Intentar cargar ZXing si BarcodeDetector no está disponible -->
-  <script>
-  (function loadZXing(cb) {
-    // No intenta si BarcodeDetector está disponible; la página verificará en runtime.
-    var urls = [
-      'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
-      'https://unpkg.com/@zxing/browser/umd/index.min.js'
-    ];
-    function tryLoad(i) {
-      if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
-      var s = document.createElement('script');
-      s.src = urls[i];
-      s.onload = function(){ console.log('ZXing loaded from', urls[i]); cb(null, urls[i]); };
-      s.onerror = function(){ console.warn('Failed to load ZXing from', urls[i]); tryLoad(i+1); };
-      document.head.appendChild(s);
-    }
-    tryLoad(0);
-  })(function(err, url) {
-    if (err) {
-      console.warn('ZXing library not loaded from CDNs.');
-      window.__ZXING_LOADED = false;
-    } else {
-      window.__ZXING_LOADED = true;
-      window.__ZXING_SRC = url;
-      console.log('ZXing available:', !!(window.ZXingBrowser || window.ZXing));
-    }
-  });
-  </script>
-
+  <!-- Cliente: usa BarcodeDetector si existe, si no ZXing desde CDN -->
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
     #video-container { width: 100%; max-width: 720px; margin: 0 auto; display:flex; flex-direction:column; gap:8px; }
@@ -83,14 +55,31 @@
 
   <script>
   // CONFIGURA AQUÍ:
-  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- REEMPLAZA con tu Web App URL
+  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- REEMPLAZA con tu Web App URL (la del Deploy /exec)
   const TOKEN = ''; // <-- si usas EXPECTED_TOKEN ponlo aquí
 
-  // UI helpers
+  // helper UI
   const logEl = document.getElementById('log');
-  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\\n'; logEl.scrollTop = logEl.scrollHeight; } }
+  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
   function setLast(code) { document.getElementById('lastCode').textContent = code; }
+
+  // load ZXing fallback quietly (CDN) - tries multiple hosts
+  (function loadZXing(cb) {
+    var urls = [
+      'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
+      'https://unpkg.com/@zxing/browser/umd/index.min.js'
+    ];
+    function tryLoad(i) {
+      if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
+      var s = document.createElement('script');
+      s.src = urls[i];
+      s.onload = function(){ console.log('ZXing loaded from', urls[i]); cb(null, urls[i]); };
+      s.onerror = function(){ console.warn('Failed to load ZXing from', urls[i]); tryLoad(i+1); };
+      document.head.appendChild(s);
+    }
+    tryLoad(0);
+  })(function(err, url) { window.__ZXING_LOADED = !err; if (!err) window.__ZXING_SRC = url; });
 
   // Elements
   const videoEl = document.getElementById('video');
@@ -100,9 +89,9 @@
   const cantidadEl = document.getElementById('cantidad');
   const beepBtn = document.getElementById('beepBtn');
 
-  // Feature detections
   const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   const hasBarcodeDetector = !!(window.BarcodeDetector);
+
   log('getUserMedia supported: ' + hasGetUserMedia);
   log('BarcodeDetector available: ' + hasBarcodeDetector);
   log('ZXing loaded flag: ' + (window.__ZXING_LOADED ? 'yes' : 'no'));
@@ -111,10 +100,11 @@
   let codeReader = null;
   let lastScanned = null;
   let lastTime = 0;
-  const DUPLICATE_DELAY = 800;
+  const DUPLICATE_DELAY = 1000; // 1s debounce (ajustado)
   let beepOn = true;
   let localStream = null;
-  let detector = null; // for BarcodeDetector
+  let detector = null;
+  let sending = false;
 
   function playBeep() {
     if (!beepOn) return;
@@ -129,10 +119,9 @@
       o.start(0);
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
       setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
-    } catch(e){ log('Audio error: ' + e); }
+    } catch(e) { log('Audio error: ' + e); }
   }
 
-  // Helper: safe getter for ZXing BrowserMultiFormatReader
   function getBrowserMultiFormatReader() {
     const ns = window.ZXingBrowser || window.ZXing;
     if (!ns) return null;
@@ -155,20 +144,10 @@
     }
 
     try {
-      // Create detector if not exists; prefer formats common for barcodes (EAN_13, CODE_128, EAN_8, UPC_A)
       if (!detector) {
-        const formats = ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code'];
-        // Some browsers expect BarcodeDetector.getSupportedFormats()
-        try {
-          if (window.BarcodeDetector && window.BarcodeDetector.getSupportedFormats) {
-            const supp = await window.BarcodeDetector.getSupportedFormats();
-            log('BarcodeDetector supported formats: ' + supp.join(','));
-          }
-        } catch(e){}
-        detector = new BarcodeDetector({formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code']});
+        detector = new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code'] });
       }
 
-      // Loop: capture frames and detect
       setStatus('Cámara activa (BarcodeDetector). Apunta al código.');
       startBtn.disabled = true;
       stopBtn.disabled = false;
@@ -187,23 +166,19 @@
           const img = ctx.getImageData(0,0,canvas.width, canvas.height);
           const detections = await detector.detect(img);
           if (detections && detections.length) {
-            // take first detection
             const code = detections[0].rawValue;
             handleDetectedCode(code);
-            // small pause to avoid duplicates
-            await new Promise(r=>setTimeout(r, 400));
+            await new Promise(r=>setTimeout(r, 300));
           }
         } catch (err) {
-          // barcode detector may throw if unsupported or invalid data; log and continue
-          //console.debug('detector error', err);
+          // ignore detector runtime errors
         }
-        // next frame
         requestAnimationFrame(detectLoop);
       }
       requestAnimationFrame(detectLoop);
       return true;
     } catch (err) {
-      log('BarcodeDetector init/loop error: ' + (err && err.message ? err.message : err));
+      log('BarcodeDetector init error: ' + err);
       return false;
     }
   }
@@ -217,9 +192,7 @@
     }
     setStatus('Solicitando cámara (ZXing)...');
     try {
-      // ZXing will manage the stream itself via decodeFromVideoDevice
       codeReader = new BrowserMultiFormatReader();
-      // enumerate devices and pick back camera if possible
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter(d => d.kind === 'videoinput');
       log('video inputs: ' + videoInputs.map(d => d.label || d.deviceId).join(', '));
@@ -242,20 +215,16 @@
       stopBtn.disabled = false;
       return true;
     } catch (err) {
-      log('Error ZXing flow: ' + (err && err.message ? err.message : err));
+      log('Error ZXing flow: ' + err);
       setStatus('Error ZXing: ' + (err && err.message ? err.message : err));
       return false;
     }
   }
 
   function stopAll() {
-    // stop ZXing if any
-    try { if (codeReader) { codeReader.reset(); } } catch(e){ console.warn(e); }
+    try { if (codeReader) codeReader.reset(); } catch(e){ }
     codeReader = null;
-    // stop local stream
-    try {
-      if (localStream && localStream.getTracks) localStream.getTracks().forEach(t => t.stop());
-    } catch(e){}
+    try { if (localStream && localStream.getTracks) localStream.getTracks().forEach(t => t.stop()); } catch(e){}
     localStream = null;
     videoEl.srcObject = null;
     setStatus('Detenido');
@@ -263,14 +232,12 @@
     stopBtn.disabled = true;
   }
 
-  // common detected handler
-  let scanning = false;
-  function handleDetectedCode(code) {
-    if (scanning) return; // small debounce
-    scanning = true;
+  // improved handler: block while sending and retry
+  async function handleDetectedCode(code) {
+    if (sending) { log('Previous send in progress, ignoring scan'); return; }
     const now = Date.now();
     if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
-      scanning = false;
+      log('duplicate ignored: ' + code);
       return;
     }
     lastScanned = code; lastTime = now;
@@ -280,41 +247,57 @@
     const cantidad = Number(cantidadEl.value) || 1;
     const tipo = tipoEl.value || 'entrada';
     const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
-    log('Enviando payload: ' + JSON.stringify(payload));
-    setStatus('Enviando ' + code + ' ...');
 
-    fetch(WEBAPP_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
-      .then(r => r.json())
-      .then(j => {
+    sending = true;
+    setStatus('Enviando ' + code + ' ...');
+    log('Enviando payload: ' + JSON.stringify(payload));
+
+    const maxAttempts = 2;
+    let attempt = 0;
+    let lastError = null;
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const res = await fetch(WEBAPP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          cache: 'no-store',
+        });
+        const j = await res.json();
         log('Respuesta del servidor: ' + JSON.stringify(j));
-        setStatus('Respuesta: ' + (j && j.ok ? 'OK' : 'ERROR'));
-      })
-      .catch(e => {
-        log('Fetch error: ' + e);
-        setStatus('Error enviando: ' + e);
-      })
-      .finally(()=>{ setTimeout(()=>{ scanning = false; }, 200); });
+        if (j && j.ok) {
+          setStatus('Respuesta: OK');
+        } else {
+          setStatus('Respuesta: ERROR');
+        }
+        sending = false;
+        return;
+      } catch (err) {
+        lastError = err;
+        log('Fetch error attempt ' + attempt + ': ' + err);
+        await new Promise(r => setTimeout(r, 200 * attempt));
+      }
+    }
+    log('All fetch attempts failed: ' + lastError);
+    setStatus('Error enviando: ' + lastError);
+    sending = false;
   }
 
-  // main start: try BarcodeDetector first, then ZXing fallback
+  // main start: try BarcodeDetector then ZXing
   async function startScanner() {
     log('startScanner called');
-    if (!hasGetUserMedia) {
-      setStatus('getUserMedia no soportado');
-      return;
-    }
+    if (!hasGetUserMedia) { setStatus('getUserMedia no soportado'); return; }
 
-    // If BarcodeDetector is available, try that first
     if (hasBarcodeDetector) {
       const ok = await startBarcodeDetectorFlow();
       if (ok) return;
-      log('BarcodeDetector fallback failed, will try ZXing');
+      log('BarcodeDetector fallback failed, trying ZXing');
     }
 
-    // If ZXing loaded flag is true or ZXing is present on window, try ZXing
     if (window.__ZXING_LOADED || (window.ZXingBrowser || window.ZXing)) {
-      const ok = await startZXingFlow();
-      if (ok) return;
+      const ok2 = await startZXingFlow();
+      if (ok2) return;
       log('ZXing fallback failed');
     } else {
       log('ZXing not loaded from CDNs; cannot start ZXing fallback');
@@ -323,13 +306,11 @@
     setStatus('No fue posible iniciar un escáner. Revisa el log y los permisos.');
   }
 
-  // UI bindings
   startBtn.addEventListener('click', startScanner);
   stopBtn.addEventListener('click', stopAll);
   beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
-  // diagnostic
-  console.log('diagnostic: getUserMedia=' + hasGetUserMedia + ' BarcodeDetector=' + hasBarcodeDetector + ' ZXing=' + !!(window.__ZXING_LOADED));
+  console.log('client diagnostic: getUserMedia=' + hasGetUserMedia + ' BarcodeDetector=' + hasBarcodeDetector + ' ZXing=' + !!(window.__ZXING_LOADED));
   </script>
 </body>
 </html>
