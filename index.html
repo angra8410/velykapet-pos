@@ -2,276 +2,40 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Escáner QuaggaJS — Velykapet POS</title>
+  <title>Demo QuaggaJS</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-  <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
-    #video-container { width: 100%; max-width: 720px; margin: 0 auto; }
-    #video { width:100%; height:360px; border:1px solid #ddd; background:#000; object-fit:cover; }
-    #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
-    button { padding:8px 12px; font-size:14px; }
-    #status { margin-top:8px; color:#222; word-break:break-word; }
-    #last { margin-top:6px; font-weight:600; }
-    .small { font-size:13px; color:#666; }
-    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
-    footer { margin-top:12px; color:#666; font-size:13px; }
-  </style>
 </head>
 <body>
-  <h2>Escáner con cámara (QuaggaJS v1)</h2>
-  <div id="video-container">
-    <div id="video"></div>
-    <div id="controls">
-      <button id="startBtn">Iniciar cámara</button>
-      <button id="stopBtn" disabled>Detener</button>
-      <label class="small">Tipo:
-        <select id="tipo">
-          <option value="entrada">entrada (sumar)</option>
-          <option value="venta" selected>venta (restar)</option>
-          <option value="ajuste">ajuste</option>
-        </select>
-      </label>
-      <label class="small">Cantidad:
-        <input id="cantidad" type="number" value="1" min="1" style="width:70px;margin-left:6px"/>
-      </label>
-      <button id="beepBtn">Pitido ON</button>
-    </div>
-    <div id="status">Estado: detenido</div>
-    <div id="last">Último barcode: <span id="lastCode">—</span></div>
-    <div id="log"></div>
-  </div>
-  <footer>
-    Nota: Si hay error, se mostrará en el log.
-  </footer>
+  <div id="video"></div>
+  <button id="startBtn">Iniciar</button>
+  <button id="stopBtn" disabled>Detener</button>
   <script>
-  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
-  const TOKEN = '';
-
-  const logEl = document.getElementById('log');
-  function log(msg) { 
-    console.log(msg); 
-    if (logEl) { 
-      logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; 
-      logEl.scrollTop = logEl.scrollHeight; 
-    } 
-  }
-  function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
-  function setLast(code) { document.getElementById('lastCode').textContent = code; }
-
-  const startBtn = document.getElementById('startBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  const tipoEl = document.getElementById('tipo');
-  const cantidadEl = document.getElementById('cantidad');
-  const beepBtn = document.getElementById('beepBtn');
-  let beepOn = true;
-
-  let sending = false;
-  let lastScanned = null;
-  let lastTime = 0;
-  const DUPLICATE_DELAY = 1000;
-  let quaggaStarted = false;
-  let globalStreams = []; // Guarda todos los streams detectados
-
-  function playBeep() {
-    if (!beepOn) return;
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = 1000;
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start(0);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
-      setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
-    } catch(e) { log('Audio error: ' + e); }
-  }
-
-  async function postMovementForm(payload, attempts = 2) {
-    const url = WEBAPP_URL;
-    const params = new URLSearchParams();
-    for (const k in payload) {
-      if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) {
-        params.append(k, String(payload[k]));
-      }
-    }
-    let lastErr = null;
-    for (let i = 1; i <= attempts; i++) {
-      try {
-        log('POST intento ' + i + ' a ' + url);
-        const res = await fetch(url, {
-          method: 'POST',
-          body: params,
-          cache: 'no-store'
-        });
-        const text = await res.text();
-        try { return JSON.parse(text); } catch(e) { return text; }
-      } catch (err) {
-        lastErr = err;
-        log('POST error intento ' + i + ': ' + (err && err.toString ? err.toString() : err));
-        await new Promise(r => setTimeout(r, 200 * i));
-      }
-    }
-    throw lastErr;
-  }
-
-  async function handleDetectedCode(code) {
-    if (sending) { log('Envío previo en curso, ignorando'); return; }
-    const now = Date.now();
-    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicado ignorado: ' + code); return; }
-    lastScanned = code; lastTime = now;
-    setLast(code);
-    playBeep();
-    const cantidad = Number(cantidadEl.value) || 1;
-    const tipo = tipoEl.value || 'entrada';
-    const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
-    sending = true;
-    setStatus('Enviando ' + code + ' ...');
-    log('Enviando payload (form): ' + JSON.stringify(payload));
-    try {
-      const result = await postMovementForm(payload, 2);
-      log('Respuesta del servidor: ' + JSON.stringify(result));
-      setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
-    } catch (err) {
-      log('Todos los intentos fallaron: ' + err);
-      setStatus('Error enviando: ' + err);
-    } finally {
-      sending = false;
-    }
-  }
-
-  function startQuaggaWithPermissionTest() {
-    log('Probando permisos de cámara con getUserMedia...');
-    setStatus('Probando acceso a cámara...');
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then(function(stream) {
-        log('Permiso de cámara OK, stream iniciado');
-        setStatus('Permiso de cámara OK, iniciando Quagga...');
-        globalStreams.push(stream); // Guarda el stream por si Quagga no lo usa
-        stream.getTracks().forEach(track => track.stop());
-        iniciarQuagga();
-      })
-      .catch(function(err) {
-        log('Permiso de cámara DENEGADO o error: ' + err.name + ' - ' + err.message);
-        setStatus('Permiso de cámara DENEGADO o error: ' + err.name + ' - ' + err.message);
+    let quaggaStarted = false;
+    document.getElementById('startBtn').onclick = () => {
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: document.querySelector('#video'),
+          constraints: { facingMode: "environment" }
+        },
+        decoder: { readers: ["ean_reader", "code_128_reader"] }
+      }, function(err) {
+        if (err) { alert(err); return; }
+        Quagga.start();
+        quaggaStarted = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
       });
-  }
-
-  function iniciarQuagga() {
-    if (quaggaStarted) {
-      log('QuaggaJS ya estaba iniciado');
-      return;
-    }
-    log('Iniciando QuaggaJS...');
-    setStatus('Solicitando cámara (QuaggaJS)...');
-    Quagga.init({
-      inputStream: {
-        name: "Live",
-        type: "LiveStream",
-        target: document.querySelector('#video'),
-        constraints: {
-          facingMode: "environment"
-        }
-      },
-      decoder: {
-        readers: [
-          "ean_reader",
-          "ean_8_reader",
-          "upc_reader",
-          "upc_e_reader",
-          "code_128_reader"
-        ]
-      },
-      locate: true,
-      numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
-    }, function(err) {
-      if (err) {
-        log('QuaggaJS init error: ' + JSON.stringify(err));
-        setStatus('Error QuaggaJS: ' + JSON.stringify(err));
-        return;
+    };
+    document.getElementById('stopBtn').onclick = () => {
+      if (quaggaStarted) {
+        Quagga.stop();
+        quaggaStarted = false;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
       }
-      // Guarda el stream del video que Quagga usa
-      setTimeout(() => {
-        try {
-          const videoElem = document.querySelector('#video video');
-          if (videoElem && videoElem.srcObject) {
-            globalStreams.push(videoElem.srcObject);
-            log('Stream guardado desde Quagga videoElem');
-          }
-        } catch(e) { log('Error guardando stream: ' + e); }
-      }, 1000);
-      Quagga.start();
-      quaggaStarted = true;
-      setStatus('Cámara activa (QuaggaJS). Apunta al código.');
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      log('QuaggaJS iniciado');
-    });
-
-    Quagga.onDetected(function(result) {
-      if (!result || !result.codeResult || !result.codeResult.code) return;
-      const code = result.codeResult.code;
-      log('Código detectado: ' + code + ' (' + result.codeResult.format + ')');
-      handleDetectedCode(code);
-    });
-  }
-
-  function stopQuagga() {
-    if (quaggaStarted) {
-      Quagga.stop();
-      quaggaStarted = false;
-      log('QuaggaJS detenido');
-      setStatus('Detenido');
-
-      // Detiene TODOS los streams guardados
-      if (globalStreams.length > 0) {
-        globalStreams.forEach(stream => {
-          if (stream) {
-            stream.getTracks().forEach(track => {
-              track.stop();
-              log('Track detenido (globalStreams): ' + track.kind);
-            });
-          }
-        });
-        globalStreams = [];
-        log('globalStreams limpiados.');
-      }
-
-      // Además, recorre y remueve todos los videos por si hay más
-      try {
-        const videos = document.querySelectorAll('video');
-        videos.forEach(v => {
-          if (v.srcObject) {
-            v.srcObject.getTracks().forEach(track => {
-              track.stop();
-              log('Track detenido (videoElem): ' + track.kind);
-            });
-            v.srcObject = null;
-          }
-          if (v.parentNode) v.parentNode.removeChild(v);
-        });
-      } catch(e) {
-        log('Error al cerrar todos los videos: ' + e);
-      }
-
-      document.querySelector('#video').innerHTML = '';
-    }
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-  }
-
-  startBtn.addEventListener('click', startQuaggaWithPermissionTest);
-  stopBtn.addEventListener('click', stopQuagga);
-  beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
-
-  window.testScannerPost = function(testCode) {
-    log('🧪 TEST');
-    handleDetectedCode(testCode || 'TEST-123');
-  };
-
-  log('✅ Listo');
+    };
   </script>
 </body>
 </html>
