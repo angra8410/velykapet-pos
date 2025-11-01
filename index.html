@@ -45,10 +45,13 @@
     Nota: Si hay error, se mostrará en el log.
   </footer>
   <script>
-    // Tu código JS aquí (igual que antes, solo cambia la estructura HTML y CSS)
-    let quaggaStarted = false;
+    // Configuración de tu backend
+    const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
+    const TOKEN = '';
+
+    // UI helpers
+    const logEl = document.getElementById('log');
     function log(msg) {
-      const logEl = document.getElementById('log');
       if (logEl) {
         logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n';
         logEl.scrollTop = logEl.scrollHeight;
@@ -58,7 +61,89 @@
     function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
     function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
-    document.getElementById('startBtn').onclick = () => {
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const tipoEl = document.getElementById('tipo');
+    const cantidadEl = document.getElementById('cantidad');
+    const beepBtn = document.getElementById('beepBtn');
+    let beepOn = true;
+
+    let sending = false;
+    let lastScanned = null;
+    let lastTime = 0;
+    const DUPLICATE_DELAY = 1000;
+    let quaggaStarted = false;
+
+    function playBeep() {
+      if (!beepOn) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = 1000;
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start(0);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+        setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
+      } catch(e) { log('Audio error: ' + e); }
+    }
+
+    async function postMovementForm(payload, attempts = 2) {
+      const url = WEBAPP_URL;
+      const params = new URLSearchParams();
+      for (const k in payload) {
+        if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) {
+          params.append(k, String(payload[k]));
+        }
+      }
+      let lastErr = null;
+      for (let i = 1; i <= attempts; i++) {
+        try {
+          log('POST intento ' + i + ' a ' + url);
+          const res = await fetch(url, {
+            method: 'POST',
+            body: params,
+            cache: 'no-store'
+          });
+          const text = await res.text();
+          try { return JSON.parse(text); } catch(e) { return text; }
+        } catch (err) {
+          lastErr = err;
+          log('POST error intento ' + i + ': ' + (err && err.toString ? err.toString() : err));
+          await new Promise(r => setTimeout(r, 200 * i));
+        }
+      }
+      throw lastErr;
+    }
+
+    async function handleDetectedCode(code) {
+      if (sending) { log('Envío previo en curso, ignorando'); return; }
+      const now = Date.now();
+      if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicado ignorado: ' + code); return; }
+      lastScanned = code; lastTime = now;
+      setLast(code);
+      playBeep();
+      const cantidad = Number(cantidadEl.value) || 1;
+      const tipo = tipoEl.value || 'entrada';
+      const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
+      sending = true;
+      setStatus('Enviando ' + code + ' ...');
+      log('Enviando payload (form): ' + JSON.stringify(payload));
+      try {
+        const result = await postMovementForm(payload, 2);
+        log('Respuesta del servidor: ' + JSON.stringify(result));
+        setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
+      } catch (err) {
+        log('Todos los intentos fallaron: ' + err);
+        setStatus('Error enviando: ' + err);
+      } finally {
+        sending = false;
+      }
+    }
+
+    startBtn.onclick = () => {
       Quagga.init({
         inputStream: {
           name: "Live",
@@ -66,36 +151,50 @@
           target: document.querySelector('#video'),
           constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
         },
-        decoder: { readers: ["ean_reader", "code_128_reader"] }
+        decoder: {
+          readers: [
+            "ean_reader",
+            "ean_8_reader",
+            "upc_reader",
+            "upc_e_reader",
+            "code_128_reader"
+          ]
+        },
+        locate: true,
+        numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
       }, function(err) {
-        if (err) { log(err); return; }
+        if (err) { log('QuaggaJS init error: ' + JSON.stringify(err)); setStatus('Error QuaggaJS: ' + JSON.stringify(err)); return; }
         Quagga.start();
         quaggaStarted = true;
-        setStatus('Cámara activa');
-        document.getElementById('startBtn').disabled = true;
-        document.getElementById('stopBtn').disabled = false;
+        setStatus('Cámara activa (QuaggaJS). Apunta al código.');
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
         log('QuaggaJS iniciado');
       });
       Quagga.onDetected(function(result) {
         if (!result || !result.codeResult || !result.codeResult.code) return;
-        setLast(result.codeResult.code);
-        log('Código detectado: ' + result.codeResult.code + ' (' + result.codeResult.format + ')');
+        const code = result.codeResult.code;
+        log('Código detectado: ' + code + ' (' + result.codeResult.format + ')');
+        handleDetectedCode(code);
       });
     };
-    document.getElementById('stopBtn').onclick = () => {
+
+    stopBtn.onclick = () => {
       if (quaggaStarted) {
         Quagga.stop();
         quaggaStarted = false;
         setStatus('Detenido');
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('stopBtn').disabled = true;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
         log('QuaggaJS detenido');
       }
     };
-    document.getElementById('beepBtn').onclick = () => {
+
+    beepBtn.onclick = () => {
       beepOn = !beepOn;
-      document.getElementById('beepBtn').textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
+      beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
     };
+
     log('✅ Listo');
   </script>
 </body>
