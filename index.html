@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Scanner cámara — Velykapet POS</title>
 
-  <!-- Cliente: usa BarcodeDetector si existe, si no ZXing desde CDN -->
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
     #video-container { width: 100%; max-width: 720px; margin: 0 auto; display:flex; flex-direction:column; gap:8px; }
@@ -55,10 +54,11 @@
 
   <script>
   // CONFIGURA AQUÍ:
-  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec'; // <-- REEMPLAZA con tu Web App URL (la del Deploy /exec)
-  const TOKEN = ''; // <-- si usas EXPECTED_TOKEN ponlo aquí
+  // URL de tu Web App (Apps Script). Ya la usaste antes; la incluí aquí directamente.
+  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
+  const TOKEN = ''; // si usas EXPECTED_TOKEN en config.gs, ponlo aquí
 
-  // helper UI
+  // UI helpers
   const logEl = document.getElementById('log');
   function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
   function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
@@ -100,11 +100,10 @@
   let codeReader = null;
   let lastScanned = null;
   let lastTime = 0;
-  const DUPLICATE_DELAY = 1000; // 1s debounce (ajustado)
+  const DUPLICATE_DELAY = 1000; // 1s debounce
   let beepOn = true;
   let localStream = null;
   let detector = null;
-  let sending = false;
 
   function playBeep() {
     if (!beepOn) return;
@@ -232,9 +231,42 @@
     stopBtn.disabled = true;
   }
 
-  // improved handler: block while sending and retry
+  // ---- Reemplaza tu handler actual por este ----
+
+  // convierte payload a form-encoded y hace POST con retry
+  async function postMovementForm(payload, attempts = 2) {
+    const url = WEBAPP_URL;
+    const params = new URLSearchParams();
+    for (const k in payload) {
+      if (payload.hasOwnProperty(k) && payload[k] !== undefined) {
+        params.append(k, String(payload[k]));
+      }
+    }
+
+    let lastErr = null;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          body: params, // URLSearchParams -> application/x-www-form-urlencoded
+          cache: 'no-store',
+        });
+        const text = await res.text();
+        try { return JSON.parse(text); } catch (e) { return text; }
+      } catch (err) {
+        lastErr = err;
+        console.warn('postMovementForm attempt', i, 'failed:', err);
+        await new Promise(r => setTimeout(r, 200 * i));
+      }
+    }
+    throw lastErr;
+  }
+
+  // improved handler: prevents overlap, uses form-encoded, always clears sending flag
+  let sending = false;
   async function handleDetectedCode(code) {
     if (sending) { log('Previous send in progress, ignoring scan'); return; }
+
     const now = Date.now();
     if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) {
       log('duplicate ignored: ' + code);
@@ -250,38 +282,19 @@
 
     sending = true;
     setStatus('Enviando ' + code + ' ...');
-    log('Enviando payload: ' + JSON.stringify(payload));
+    log('Enviando payload (form): ' + JSON.stringify(payload));
 
-    const maxAttempts = 2;
-    let attempt = 0;
-    let lastError = null;
-    while (attempt < maxAttempts) {
-      attempt++;
-      try {
-        const res = await fetch(WEBAPP_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          cache: 'no-store',
-        });
-        const j = await res.json();
-        log('Respuesta del servidor: ' + JSON.stringify(j));
-        if (j && j.ok) {
-          setStatus('Respuesta: OK');
-        } else {
-          setStatus('Respuesta: ERROR');
-        }
-        sending = false;
-        return;
-      } catch (err) {
-        lastError = err;
-        log('Fetch error attempt ' + attempt + ': ' + err);
-        await new Promise(r => setTimeout(r, 200 * attempt));
-      }
+    try {
+      const result = await postMovementForm(payload, 2);
+      log('Respuesta del servidor: ' + JSON.stringify(result));
+      setStatus((result && result.ok) ? 'Respuesta: OK' : 'Respuesta: ERROR');
+    } catch (err) {
+      log('All form attempts failed: ' + err);
+      setStatus('Error enviando: ' + err);
+    } finally {
+      // importante: siempre liberar el flag para evitar bloqueos
+      sending = false;
     }
-    log('All fetch attempts failed: ' + lastError);
-    setStatus('Error enviando: ' + lastError);
-    sending = false;
   }
 
   // main start: try BarcodeDetector then ZXing
