@@ -144,7 +144,25 @@
 
   let quaggaStarted = false;
 
-  function startQuagga() {
+  // Haz que el scanner primero pruebe getUserMedia y SOLO luego inicie Quagga
+  function startQuaggaWithPermissionTest() {
+    log('Probando permisos de cámara con getUserMedia...');
+    setStatus('Probando acceso a cámara...');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(function(stream) {
+        log('Permiso de cámara OK, stream iniciado');
+        setStatus('Permiso de cámara OK, iniciando Quagga...');
+        // Cerramos el stream para que Quagga lo use luego
+        stream.getTracks().forEach(track => track.stop());
+        iniciarQuagga();
+      })
+      .catch(function(err) {
+        log('Permiso de cámara DENEGADO o error: ' + err.name + ' - ' + err.message);
+        setStatus('Permiso de cámara DENEGADO o error: ' + err.name + ' - ' + err.message);
+      });
+  }
+
+  function iniciarQuagga() {
     if (quaggaStarted) {
       log('QuaggaJS ya estaba iniciado');
       return;
@@ -205,7 +223,7 @@
     document.querySelector('#video').innerHTML = '';
   }
 
-  startBtn.addEventListener('click', startQuagga);
+  startBtn.addEventListener('click', startQuaggaWithPermissionTest);
   stopBtn.addEventListener('click', stopQuagga);
   beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
