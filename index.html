@@ -4,7 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Escáner QuaggaJS — Velykapet POS</title>
-  <script src="https://unpkg.com/@ericblade/quagga2@1.2.8/dist/quagga.js"></script>
+  <!-- QuaggaJS v1 desde CDN confiable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin: 12px; color: #111; }
     #video-container { width: 100%; max-width: 720px; margin: 0 auto; }
@@ -19,7 +20,7 @@
   </style>
 </head>
 <body>
-  <h2>Escáner con cámara (QuaggaJS)</h2>
+  <h2>Escáner con cámara (QuaggaJS v1)</h2>
   <div id="video-container">
     <div id="video"></div>
     <div id="controls">
@@ -45,11 +46,9 @@
     Nota: Si hay error, se mostrará en el log.
   </footer>
   <script>
-  // CONFIGURA AQUÍ:
   const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
   const TOKEN = '';
 
-  // UI helpers
   const logEl = document.getElementById('log');
   function log(msg) { 
     console.log(msg); 
@@ -144,7 +143,6 @@
 
   let quaggaStarted = false;
 
-  // Haz que el scanner primero pruebe getUserMedia y SOLO luego inicie Quagga
   function startQuaggaWithPermissionTest() {
     log('Probando permisos de cámara con getUserMedia...');
     setStatus('Probando acceso a cámara...');
@@ -152,7 +150,6 @@
       .then(function(stream) {
         log('Permiso de cámara OK, stream iniciado');
         setStatus('Permiso de cámara OK, iniciando Quagga...');
-        // Cerramos el stream para que Quagga lo use luego
         stream.getTracks().forEach(track => track.stop());
         iniciarQuagga();
       })
