@@ -81,6 +81,7 @@
 </head>
 <body>
   <h2>Escáner con cámara (QuaggaJS v1)</h2>
+  <!-- SOLO el video aquí -->
   <div id="video-container">
     <div id="video"></div>
   </div>
@@ -107,11 +108,8 @@
     Nota: Si hay error, se mostrará en el log.
   </footer>
   <script>
-    // Configuración de tu backend
     const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwKqes9-L4GGqu0CnuOLsu5hlt0AsR4UBhvBfm-hTxAXqkK7LRuqDoryB2HKK9rfouD/exec';
     const TOKEN = '';
-
-    // UI helpers
     const logEl = document.getElementById('log');
     function log(msg) {
       if (logEl) {
@@ -122,20 +120,17 @@
     }
     function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
     function setLast(code) { document.getElementById('lastCode').textContent = code; }
-
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const tipoEl = document.getElementById('tipo');
     const cantidadEl = document.getElementById('cantidad');
     const beepBtn = document.getElementById('beepBtn');
     let beepOn = true;
-
     let sending = false;
     let lastScanned = null;
     let lastTime = 0;
     const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
-
     function playBeep() {
       if (!beepOn) return;
       try {
@@ -151,7 +146,6 @@
         setTimeout(() => { o.stop(); ctx.close(); }, 150);
       } catch (e) { log('Audio error: ' + e); }
     }
-
     async function postMovementForm(payload, attempts = 2) {
       const url = WEBAPP_URL;
       const params = new URLSearchParams();
@@ -179,7 +173,6 @@
       }
       throw lastErr;
     }
-
     async function handleDetectedCode(code) {
       if (sending) { log('Envío previo en curso, ignorando'); return; }
       const now = Date.now();
@@ -204,7 +197,6 @@
         sending = false;
       }
     }
-
     startBtn.onclick = () => {
       Quagga.init({
         inputStream: {
@@ -240,7 +232,6 @@
         handleDetectedCode(code);
       });
     };
-
     stopBtn.onclick = () => {
       if (quaggaStarted) {
         Quagga.stop();
@@ -249,16 +240,13 @@
         startBtn.disabled = false;
         stopBtn.disabled = true;
         log('QuaggaJS detenido');
-        // Limpia el área de video
         document.getElementById('video').innerHTML = '';
       }
     };
-
     beepBtn.onclick = () => {
       beepOn = !beepOn;
       beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF';
     };
-
     log('✅ Listo');
   </script>
 </body>
