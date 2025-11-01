@@ -212,29 +212,25 @@
       quaggaStarted = false;
       log('QuaggaJS detenido');
       setStatus('Detenido');
-      // Cierra el stream manualmente para liberar la cámara
-      try {
-        // 1. Busca el video creado por Quagga en el target
-        const videoElem = document.querySelector('#video video');
-        if (videoElem && videoElem.srcObject) {
-          videoElem.srcObject.getTracks().forEach(track => track.stop());
-          log('Stream de cámara detenido manualmente (videoElem.srcObject).');
-        }
-      } catch(e) {
-        log('Error al cerrar el stream: ' + e);
-      }
-      // 2. Además, busca todos los MediaStream activos y detén sus tracks
+
+      // Apagado forzado de TODOS los videos en la página
       try {
         const videos = document.querySelectorAll('video');
         videos.forEach(v => {
           if (v.srcObject) {
-            v.srcObject.getTracks().forEach(track => track.stop());
-            log('Stream de cámara detenido (forzado en todos los <video>).');
+            v.srcObject.getTracks().forEach(track => {
+              track.stop();
+              log('Track detenido: ' + track.kind);
+            });
+            v.srcObject = null;
+            log('srcObject seteado a null.');
           }
+          if (v.parentNode) v.parentNode.removeChild(v);
         });
       } catch(e) {
         log('Error al cerrar todos los videos: ' + e);
       }
+
       document.querySelector('#video').innerHTML = '';
     }
     startBtn.disabled = false;
