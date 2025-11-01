@@ -201,7 +201,13 @@
           }
         },
         decoder: {
-          readers: ["ean_reader"]
+          readers: [
+          "ean_reader",        // EAN-13
+          "ean_8_reader",      // EAN-8
+          "upc_reader",        // UPC-A
+          "upc_e_reader",      // UPC-E
+          "code_128_reader"    // Code128            
+          ]
         },
         locate: false,
         numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
