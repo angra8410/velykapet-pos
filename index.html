@@ -3,10 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Scanner cámara — Velykapet POS</title>
+  <title>Scanner diagnóstico — Velykapet POS</title>
 
-  <!-- ZXing browser bundle (via CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.0.11/umd/index.min.js"></script>
+  <!-- Intentar cargar ZXing desde varios CDN (jsDelivr, unpkg) -->
+  <script>
+  (function loadZXing(cb) {
+    var urls = [
+      'https://cdn.jsdelivr.net/npm/@zxing/browser/umd/index.min.js',
+      'https://unpkg.com/@zxing/browser/umd/index.min.js'
+    ];
+    function tryLoad(i) {
+      if (i >= urls.length) { cb(new Error('ZXing not loaded')); return; }
+      var s = document.createElement('script');
+      s.src = urls[i];
+      s.onload = function(){ console.log('ZXing loaded from', urls[i]); cb(null); };
+      s.onerror = function(){ console.warn('Failed to load ZXing from', urls[i]); tryLoad(i+1); };
+      document.head.appendChild(s);
+    }
+    tryLoad(0);
+  })(function(err){
+    if (err) {
+      console.error('ZXing library could not be loaded from CDNs. Please check network or try alternative CDN.');
+      var log = document.getElementById && document.getElementById('log');
+      if (log) log.innerText += '\nERROR: ZXing library not loaded. Abre en el navegador: https://unpkg.com/@zxing/browser/umd/index.min.js';
+    } else {
+      console.log('ZXing available:', !!(window.ZXingBrowser || window.ZXing));
+    }
+  });
+  </script>
 
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin: 12px; }
@@ -17,10 +41,11 @@
     #status { margin-top:8px; color:#222; word-break:break-word; }
     #last { margin-top:6px; font-weight:600; }
     .small { font-size:13px; color:#666; }
+    #log { margin-top:8px; padding:8px; border:1px solid #eee; background:#fafafa; max-height:200px; overflow:auto; font-family:monospace; font-size:12px; white-space:pre-wrap; }
   </style>
 </head>
 <body>
-  <h2>Escáner con cámara (mobile)</h2>
+  <h2>Escáner diagnóstico (mobile)</h2>
   <div id="video-container">
     <video id="video" autoplay muted playsinline></video>
     <div id="controls">
@@ -41,39 +66,37 @@
 
     <div id="status">Estado: detenido</div>
     <div id="last">Último barcode: <span id="lastCode">—</span></div>
+    <div id="log"></div>
   </div>
 
   <script>
   // CONFIGURA AQUÍ:
-  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxhJbKMYEhucn5YkydffYASRc8CJzzyh3bX-Bs4Fb2ERKr1g99zs37D_sUxlSuLPxBs/exec'; // <-- reemplaza con tu Web App URL
-  const TOKEN = ''; // si usas EXPECTED_TOKEN en config.gs, ponlo aquí
+  const WEBAPP_URL = 'https://TU_WEBAPP_URL/exec'; // <-- reemplaza con tu Web App URL
+  const TOKEN = ''; // <-- reemplaza si usas token
 
-  // Opciones: intervalo mínimo entre mismos scans para evitar duplicados (ms)
-  const DUPLICATE_DELAY = 800; 
+  const logEl = document.getElementById('log');
+  function log(msg) { console.log(msg); if (logEl) { logEl.innerText += new Date().toLocaleTimeString() + ' | ' + String(msg) + '\\n'; logEl.scrollTop = logEl.scrollHeight; } }
+  function setStatus(s) { document.getElementById('status').textContent = 'Estado: ' + s; }
+  function setLast(code) { document.getElementById('lastCode').textContent = code; }
 
-  // ZXing objects
-  const { BrowserMultiFormatReader, NotFoundException } = window.ZXingBrowser || window.ZXing;
-  let codeReader = null;
-  let selectedDeviceId = null;
-  let lastScanned = null;
-  let lastTime = 0;
-  let beepEnabled = true;
-  let mediaStream = null;
+  const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  log('getUserMedia supported: ' + hasGetUserMedia);
 
-  const videoElement = document.getElementById('video');
+  const videoEl = document.getElementById('video');
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
-  const statusEl = document.getElementById('status');
-  const lastCodeEl = document.getElementById('lastCode');
   const tipoEl = document.getElementById('tipo');
   const cantidadEl = document.getElementById('cantidad');
   const beepBtn = document.getElementById('beepBtn');
 
-  function updateStatus(txt) { statusEl.textContent = 'Estado: ' + txt; }
-  function setLast(code) { lastCodeEl.textContent = code; }
+  let codeReader = null;
+  let lastScanned = null;
+  let lastTime = 0;
+  const DUPLICATE_DELAY = 800;
+  let beepOn = true;
 
   function playBeep() {
-    if (!beepEnabled) return;
+    if (!beepOn) return;
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const o = ctx.createOscillator();
@@ -85,110 +108,104 @@
       o.start(0);
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
       setTimeout(()=>{ o.stop(); ctx.close(); }, 150);
-    } catch (e) { /* ignore audio errors */ }
+    } catch(e) { log('Audio error: ' + e); }
+  }
+
+  function getBrowserMultiFormatReader() {
+    const ns = window.ZXingBrowser || window.ZXing;
+    if (!ns) return null;
+    return ns.BrowserMultiFormatReader || ns.BrowserMultiFormatReader;
   }
 
   async function startScanner() {
-    if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
-      updateStatus('Tu navegador no soporta cámara.');
+    log('startScanner called');
+    if (!hasGetUserMedia) {
+      setStatus('getUserMedia no soportado en este navegador');
+      log('Aborting: getUserMedia not supported');
       return;
     }
-    updateStatus('Iniciando cámara...');
-    codeReader = new BrowserMultiFormatReader();
+    setStatus('solicitando cámara...');
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (tmp && tmp.getTracks) tmp.getTracks().forEach(t => t.stop());
+      log('getUserMedia permission OK');
+    } catch (err) {
+      log('getUserMedia error: ' + (err && err.message ? err.message : err));
+      setStatus('Error getUserMedia: ' + (err && err.message ? err.message : err));
+      return;
+    }
+
+    const BrowserMultiFormatReader = getBrowserMultiFormatReader();
+    if (!BrowserMultiFormatReader) {
+      log('ZXing lib not found on window. Check CDN or adblock.');
+      setStatus('ZXing no cargado. Abre en el navegador: https://unpkg.com/@zxing/browser/umd/index.min.js');
+      return;
+    }
 
     try {
-      // Prefer rear camera on mobile if available
+      codeReader = new BrowserMultiFormatReader();
+      log('ZXing reader created');
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter(d => d.kind === 'videoinput');
-      if (videoInputs.length === 0) throw new Error('No video input devices found');
+      log('video inputs: ' + videoInputs.map(d => d.label || d.deviceId).join(', '));
+      const back = videoInputs.find(d => /back|rear|traseira|trasero/i.test(d.label)) || videoInputs[0];
+      const selectedId = back ? back.deviceId : (videoInputs[0] && videoInputs[0].deviceId);
+      if (!selectedId) { setStatus('No se encontró dispositivo de video'); log('No video deviceId'); return; }
 
-      // Seleccionar la cámara trasera si existe (label may contain "back" / "rear")
-      const back = videoInputs.find(d => /rear|back|traseira|trasero/i.test(d.label));
-      selectedDeviceId = back ? back.deviceId : videoInputs[0].deviceId;
-
-      // Start continuous decode from video element
-      const hints = new Map(); // usar por defecto
-      codeReader.reset();
-      // startContinuousDecodeFromVideoDevice returns a promise that resolves when streaming starts
-      await codeReader.decodeFromVideoDevice(selectedDeviceId, videoElement, (result, err) => {
+      await codeReader.decodeFromVideoDevice(selectedId, videoEl, (result, err) => {
         if (result) {
           handleScan(result.getText());
-        } else if (err && !(err instanceof NotFoundException)) {
-          // Ignorar NotFoundException (cuando no detecta), loguear otros errores
+        } else if (err && err.name !== 'NotFoundException') {
           console.debug('ZXing err', err);
         }
       });
-      updateStatus('Cámara activa. Apunta al código.');
+      setStatus('Cámara activa. Apunta al código.');
       startBtn.disabled = true;
       stopBtn.disabled = false;
+      log('ZXing decode loop started');
     } catch (err) {
-      console.error(err);
-      updateStatus('Error al iniciar cámara: ' + (err.message || err));
+      log('Error inicializando ZXing: ' + (err && err.message ? err.message : err));
+      setStatus('Error inicializando ZXing: ' + (err && err.message ? err.message : err));
     }
   }
 
   function stopScanner() {
-    if (codeReader) {
-      try { codeReader.reset(); } catch(e){/*ignore*/}
-      codeReader = null;
-    }
-    // Stop media tracks if any
-    try {
-      const s = videoElement.srcObject;
-      if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
-    } catch(e){}
-    videoElement.srcObject = null;
-    updateStatus('Detenido');
+    log('stopScanner called');
+    try { if (codeReader) codeReader.reset(); } catch(e){ log('error resetting codeReader: '+e); }
+    try { const s = videoEl.srcObject; if (s && s.getTracks) s.getTracks().forEach(t => t.stop()); } catch(e){}
+    videoEl.srcObject = null;
+    setStatus('Detenido');
     startBtn.disabled = false;
     stopBtn.disabled = true;
   }
 
   function handleScan(code) {
     const now = Date.now();
-    // evitar duplicados muy seguidos
-    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) return;
-    lastScanned = code;
-    lastTime = now;
+    if (code === lastScanned && (now - lastTime) < DUPLICATE_DELAY) { log('duplicate ignored ' + code); return; }
+    lastScanned = code; lastTime = now;
     setLast(code);
     playBeep();
-
-    // leer cantidad/tipo desde UI
     const cantidad = Number(cantidadEl.value) || 1;
     const tipo = tipoEl.value || 'entrada';
-
-    // enviar payload al WebApp
     const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
-
-    updateStatus('Enviando ' + code + ' ...');
-    fetch(WEBAPP_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(r => r.json())
-    .then(j => {
-      updateStatus('Respuesta: ' + (j && j.ok ? 'OK' : 'ERROR') + (j && j.inventory ? ' — stock: ' + (j.inventory.to || j.inventory.stock || '') : ''));
-      console.log('response', j);
-    })
-    .catch(err => {
-      updateStatus('Error enviando: ' + err);
-      console.error(err);
-    });
+    log('Enviando payload: ' + JSON.stringify(payload));
+    setStatus('Enviando ' + code + ' ...');
+    fetch(WEBAPP_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      .then(r => r.json())
+      .then(j => {
+        log('Respuesta del servidor: ' + JSON.stringify(j));
+        setStatus('Respuesta: ' + (j && j.ok ? 'OK' : 'ERROR'));
+      })
+      .catch(e => {
+        log('Fetch error: ' + e); setStatus('Error enviando: ' + e);
+      });
   }
 
-  // UI events
   startBtn.addEventListener('click', startScanner);
   stopBtn.addEventListener('click', stopScanner);
-  beepBtn.addEventListener('click', () => {
-    beepEnabled = !beepEnabled;
-    beepBtn.textContent = beepEnabled ? 'Pitido ON' : 'Pitido OFF';
-  });
+  beepBtn.addEventListener('click', () => { beepOn = !beepOn; beepBtn.textContent = beepOn ? 'Pitido ON' : 'Pitido OFF'; });
 
-  // Auto-start on mobile optional:
-  // window.addEventListener('load', () => { if (/Mobi|Android/i.test(navigator.userAgent)) startScanner(); });
-
-  // Clean up when page unloads
-  window.addEventListener('unload', stopScanner);
+  console.log('diagnostic loaded: getUserMedia=' + hasGetUserMedia + ' ZXing=' + !!(window.ZXingBrowser || window.ZXing));
   </script>
 </body>
 </html>
