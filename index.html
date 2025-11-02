@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Escáner QuaggaJS — Velykapet POS</title>
+  <title>Escáner ZXingJS — Velykapet POS</title>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
   <style>
     body { font-family: Arial, Helvetica, sans-serif; margin:0; padding:0; background:#fff;}
     .main-wrap { max-width:720px; margin:24px auto 0 auto; padding:0 12px; }
@@ -40,9 +40,9 @@
 </head>
 <body>
   <div class="main-wrap">
-    <h2>Escáner con cámara (QuaggaJS v1)</h2>
+    <h2>Escáner con cámara (ZXingJS)</h2>
     <div id="video-box">
-      <div id="video"></div>
+      <video id="video"></video>
       <div id="scan-area"></div>
     </div>
     <div id="controls">
@@ -103,12 +103,13 @@
     let waitingForUser = false;
     let scannedCodes = [];
     let codesDetected = [];
-    let quaggaStarted = false;
 
-    // Debounce: solo acepta un código cada vez y espera confirmación
+    let codeReader = null;
+    let videoInputDevices = [];
+    let selectedDeviceId = null;
+    let scanning = false;
     let lastConfirmedCode = "";
     let lastDetectedCode = "";
-    let lastDetectedAt = 0;
 
     function playBeep() {
       if (!beepOn) return;
@@ -161,9 +162,8 @@
       } finally { sending = false; }
     }
 
-    // Actualizado: muestra todos los formatos y solo acepta un código a la vez (de cualquier formato)
     function updateSelectDetected() {
-      // Mostrar todos los formatos admitidos y todos los códigos detectados únicos
+      // Mostrar todos los códigos detectados únicos
       const uniqueCodes = [];
       selectCodeEl.innerHTML = '';
       codesDetected.forEach(item => {
@@ -178,7 +178,6 @@
           selectCodeEl.appendChild(opt);
         }
       });
-      // Si no hay ningún código válido, muestra opción vacía
       if (selectCodeEl.options.length === 0) {
         const opt = document.createElement('option');
         opt.value = '';
@@ -188,9 +187,7 @@
     }
 
     function handleDetectedCode(code, format) {
-      // Solo acepta el código si no es el último confirmado y espera confirmación del usuario
       if (waitingForUser) {
-        // Evita agregar el mismo código repetido
         if (!codesDetected.find(c => c.code === code && c.format === format)) {
           codesDetected.push({ code, format });
           updateSelectDetected();
@@ -208,73 +205,53 @@
       log(`Detectado: ${code} (${format})`);
     }
 
-    startBtn.onclick = () => {
-      Quagga.init({
-        inputStream: {
-          name: "Live",
-          type: "LiveStream",
-          target: document.querySelector('#video'),
-          constraints: {
-            facingMode: "environment",
-            width: { ideal: 640 },
-            height: { ideal: 480 }
+    startBtn.onclick = async () => {
+      setStatus('Cargando cámaras...');
+      codeReader = new ZXing.BrowserMultiFormatReader();
+      try {
+        videoInputDevices = await codeReader.listVideoInputDevices();
+        selectedDeviceId = videoInputDevices.length > 1 ? videoInputDevices[1].deviceId : videoInputDevices[0].deviceId;
+      } catch (err) {
+        log('Error obteniendo cámaras: ' + err);
+        setStatus('Error obteniendo cámaras');
+        return;
+      }
+      setStatus('Escaneando...');
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      actionButtonsEl.style.display = 'none';
+      codesDetected = [];
+      scannedCodes = [];
+      selectCodeEl.innerHTML = '';
+      setLast('—');
+      waitingForUser = false;
+      scanning = true;
+      codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
+        if (result) {
+          const code = result.text;
+          const format = result.barcodeFormat;
+          if (code && code !== lastConfirmedCode && code !== lastDetectedCode) {
+            lastDetectedCode = code;
+            handleDetectedCode(code, format);
           }
-        },
-        decoder: {
-          readers: [
-            "ean_reader",        // EAN-13
-            "ean_8_reader",      // EAN-8
-            "upc_reader",        // UPC-A
-            "upc_e_reader",      // UPC-E
-            "code_128_reader",   // Code128
-            "code_39_reader",    // Code39
-            "codabar_reader",    // Codabar
-            "i2of5_reader"       // Interleaved 2 of 5
-          ]
-        },
-        locate: true,
-        numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
-      }, function (err) {
-        if (err) { log('QuaggaJS init error: ' + JSON.stringify(err)); setStatus('Error QuaggaJS: ' + JSON.stringify(err)); return; }
-        Quagga.start();
-        quaggaStarted = true;
-        waitingForUser = false;
-        scannedCodes = [];
-        codesDetected = [];
-        selectCodeEl.innerHTML = '';
-        setLast('—');
-        setStatus('Cámara activa (QuaggaJS). Apunta el código dentro del rectángulo rojo.');
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        actionButtonsEl.style.display = 'none';
-        log('QuaggaJS iniciado');
-      });
-
-      Quagga.onDetected(function (result) {
-        if (!result || !result.codeResult || !result.codeResult.code) return;
-        const code = result.codeResult.code;
-        const format = result.codeResult.format;
-        const now = Date.now();
-
-        // Solo acepta código si no es el último confirmado y han pasado al menos 2 segundos desde la última detección
-        if ((code !== lastConfirmedCode) && (code !== lastDetectedCode || (now - lastDetectedAt) > 2000)) {
-          lastDetectedCode = code;
-          lastDetectedAt = now;
-          handleDetectedCode(code, format);
+        }
+        if (err && !(err instanceof ZXing.NotFoundException)) {
+          log('Error de escaneo: ' + err);
         }
       });
+      log('ZXingJS iniciado');
     };
 
     stopBtn.onclick = () => {
-      if (quaggaStarted) {
-        Quagga.stop();
-        quaggaStarted = false;
+      if (codeReader && scanning) {
+        codeReader.reset();
+        scanning = false;
         setStatus('Detenido');
         startBtn.disabled = false;
         stopBtn.disabled = true;
         actionButtonsEl.style.display = 'none';
-        log('QuaggaJS detenido');
-        document.getElementById('video').innerHTML = '';
+        log('ZXingJS detenido');
+        document.getElementById('video').srcObject = null;
       }
     };
 
@@ -286,7 +263,7 @@
     nextCodeBtn.onclick = async () => {
       const selectedCode = selectCodeEl.value;
       if (selectedCode) {
-        lastConfirmedCode = selectedCode; // evita repetir
+        lastConfirmedCode = selectedCode;
         scannedCodes.push(selectedCode);
         renderCodesList();
         await sendCodeToBackend(selectedCode);
@@ -299,15 +276,15 @@
     };
 
     finishBtn.onclick = () => {
-      if (quaggaStarted) {
-        Quagga.stop();
-        quaggaStarted = false;
+      if (codeReader && scanning) {
+        codeReader.reset();
+        scanning = false;
         setStatus('Lectura finalizada. Total códigos: ' + scannedCodes.length);
         startBtn.disabled = false;
         stopBtn.disabled = true;
         actionButtonsEl.style.display = 'none';
         log('Lectura finalizada. Códigos escaneados: ' + JSON.stringify(scannedCodes));
-        document.getElementById('video').innerHTML = '';
+        document.getElementById('video').srcObject = null;
       }
     };
 
