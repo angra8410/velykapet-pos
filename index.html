@@ -60,7 +60,6 @@
       </label>
       <button id="beepBtn">Pitido ON</button>
     </div>
-    <!-- Botones de acción aparecen tras leer código -->
     <div id="action-buttons">
       <select id="select-code"></select>
       <button id="nextCodeBtn">Enviar código y leer otro</button>
@@ -104,8 +103,12 @@
     let waitingForUser = false;
     let scannedCodes = [];
     let codesDetected = [];
-    const DUPLICATE_DELAY = 1000;
     let quaggaStarted = false;
+
+    // Debounce: solo acepta un código cada vez y espera confirmación
+    let lastConfirmedCode = "";
+    let lastDetectedCode = "";
+    let lastDetectedAt = 0;
 
     function playBeep() {
       if (!beepOn) return;
@@ -158,6 +161,7 @@
       } finally { sending = false; }
     }
 
+    // Actualizado: muestra todos los formatos y solo acepta un código a la vez (de cualquier formato)
     function updateSelectDetected() {
       // Mostrar todos los formatos admitidos y todos los códigos detectados únicos
       const uniqueCodes = [];
@@ -184,10 +188,14 @@
     }
 
     function handleDetectedCode(code, format) {
+      // Solo acepta el código si no es el último confirmado y espera confirmación del usuario
       if (waitingForUser) {
-        codesDetected.push({ code, format });
-        updateSelectDetected();
-        log('Esperando acción del usuario, acumulando código: ' + code + ' (' + format + ')');
+        // Evita agregar el mismo código repetido
+        if (!codesDetected.find(c => c.code === code && c.format === format)) {
+          codesDetected.push({ code, format });
+          updateSelectDetected();
+          log('Esperando acción del usuario, acumulando código: ' + code + ' (' + format + ')');
+        }
         return;
       }
       codesDetected = [{ code, format }];
@@ -214,14 +222,14 @@
         },
         decoder: {
           readers: [
-          "ean_reader",        // EAN-13
-          "ean_8_reader",      // EAN-8
-          "upc_reader",        // UPC-A
-          "upc_e_reader",      // UPC-E
-          "code_128_reader",   // Code128
-          "code_39_reader",    // Code39
-          "codabar_reader",    // Codabar
-          "i2of5_reader"       // Interleaved 2 of 5
+            "ean_reader",        // EAN-13
+            "ean_8_reader",      // EAN-8
+            "upc_reader",        // UPC-A
+            "upc_e_reader",      // UPC-E
+            "code_128_reader",   // Code128
+            "code_39_reader",    // Code39
+            "codabar_reader",    // Codabar
+            "i2of5_reader"       // Interleaved 2 of 5
           ]
         },
         locate: true,
@@ -241,11 +249,19 @@
         actionButtonsEl.style.display = 'none';
         log('QuaggaJS iniciado');
       });
+
       Quagga.onDetected(function (result) {
         if (!result || !result.codeResult || !result.codeResult.code) return;
         const code = result.codeResult.code;
         const format = result.codeResult.format;
-        handleDetectedCode(code, format);
+        const now = Date.now();
+
+        // Solo acepta código si no es el último confirmado y han pasado al menos 2 segundos desde la última detección
+        if ((code !== lastConfirmedCode) && (code !== lastDetectedCode || (now - lastDetectedAt) > 2000)) {
+          lastDetectedCode = code;
+          lastDetectedAt = now;
+          handleDetectedCode(code, format);
+        }
       });
     };
 
@@ -270,6 +286,7 @@
     nextCodeBtn.onclick = async () => {
       const selectedCode = selectCodeEl.value;
       if (selectedCode) {
+        lastConfirmedCode = selectedCode; // evita repetir
         scannedCodes.push(selectedCode);
         renderCodesList();
         await sendCodeToBackend(selectedCode);
