@@ -32,6 +32,7 @@
     #last { font-weight:600; font-size:15px;}
     #codes-list { padding:8px; background:#f5f5f5; border-radius:6px; margin-bottom:14px; font-size:14px; max-height:90px; overflow-y:auto; font-family:monospace;}
     #log { padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:13px; white-space:pre-wrap; border-radius:6px;}
+    #select-camera { font-size:16px; padding:6px 12px; margin-right:12px; }
     #select-code { font-size:16px; padding:6px 12px; margin-right:12px; }
     footer { color:#666; font-size:13px; text-align:center; margin-top:15px; margin-bottom:24px;}
     @media (max-width:800px) { .main-wrap, #status, #last, #log, footer { max-width:95vw;} #video-box { height:200px;} }
@@ -46,6 +47,7 @@
       <div id="scan-area"></div>
     </div>
     <div id="controls">
+      <select id="select-camera"></select>
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
       <label>Tipo:
@@ -98,6 +100,7 @@
     const finishBtn = document.getElementById('finishBtn');
     const actionButtonsEl = document.getElementById('action-buttons');
     const selectCodeEl = document.getElementById('select-code');
+    const selectCameraEl = document.getElementById('select-camera');
     let beepOn = true;
     let sending = false;
     let waitingForUser = false;
@@ -205,18 +208,42 @@
       log(`Detectado: ${code} (${format})`);
     }
 
-    startBtn.onclick = async () => {
-      setStatus('Cargando cámaras...');
+    // Inicializa y lista cámaras al cargar
+    async function setupCameras() {
       codeReader = new ZXing.BrowserMultiFormatReader();
       try {
         videoInputDevices = await codeReader.listVideoInputDevices();
-        selectedDeviceId = videoInputDevices.length > 1 ? videoInputDevices[1].deviceId : videoInputDevices[0].deviceId;
+        selectCameraEl.innerHTML = '';
+        videoInputDevices.forEach((device, idx) => {
+          const opt = document.createElement('option');
+          opt.value = device.deviceId;
+          opt.textContent = device.label || `Cámara ${idx+1}`;
+          selectCameraEl.appendChild(opt);
+        });
+        // Selecciona la cámara posterior por defecto si existe
+        let backIdx = videoInputDevices.findIndex(dev =>
+          dev.label.toLowerCase().includes('back') ||
+          dev.label.toLowerCase().includes('trasera') ||
+          dev.label.toLowerCase().includes('rear')
+        );
+        selectCameraEl.selectedIndex = backIdx >= 0 ? backIdx : 0;
       } catch (err) {
         log('Error obteniendo cámaras: ' + err);
         setStatus('Error obteniendo cámaras');
-        return;
       }
+    }
+
+    // Al cambiar de cámara manualmente
+    selectCameraEl.onchange = () => {
+      if (scanning) {
+        stopBtn.click();
+        startBtn.click();
+      }
+    };
+
+    startBtn.onclick = async () => {
       setStatus('Escaneando...');
+      selectedDeviceId = selectCameraEl.value;
       startBtn.disabled = true;
       stopBtn.disabled = false;
       actionButtonsEl.style.display = 'none';
@@ -288,6 +315,8 @@
       }
     };
 
+    // Inicializa cámaras al cargar la página
+    window.onload = setupCameras;
     log('✅ Listo');
   </script>
 </body>
