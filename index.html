@@ -9,8 +9,17 @@
     body { font-family: Arial, Helvetica, sans-serif; margin:0; padding:0; background:#fff;}
     .main-wrap { max-width:720px; margin:24px auto 0 auto; padding:0 12px; }
     h2 { text-align:center; margin-bottom:32px; font-size:2rem; font-weight:600; }
-    #video-box { width:100%; background:#000; border:1px solid #ddd; margin-bottom:24px; height:360px; overflow:hidden; border-radius:10px;}
+    #video-box { width:100%; background:#000; border:1px solid #ddd; margin-bottom:24px; height:360px; overflow:hidden; border-radius:10px; position:relative;}
     #video { width:100%; height:100%; display:block; background:#000; object-fit:cover; border-radius:10px;}
+    #scan-area {
+      position: absolute;
+      top: 80px; left: 50%; transform: translateX(-50%);
+      width: 320px; height: 80px;
+      border: 2px dashed #d00;
+      pointer-events: none;
+      box-sizing: border-box;
+      z-index: 5;
+    }
     #controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:center; margin:0 0 24px 0;}
     button { padding:8px 20px; font-size:15px; border:1px solid #bbb; border-radius:4px; background:#f7f7f7; cursor:pointer;}
     button:disabled { background:#eaeaea; color:#888; cursor:not-allowed; border-color:#eee;}
@@ -32,7 +41,10 @@
 <body>
   <div class="main-wrap">
     <h2>Escáner con cámara (QuaggaJS v1)</h2>
-    <div id="video-box"><div id="video"></div></div>
+    <div id="video-box">
+      <div id="video"></div>
+      <div id="scan-area"></div>
+    </div>
     <div id="controls">
       <button id="startBtn">Iniciar cámara</button>
       <button id="stopBtn" disabled>Detener</button>
@@ -147,14 +159,13 @@
     }
 
     function updateSelectDetected() {
-      // Solo muestra EAN-13 de 13 dígitos, únicos
+      // Mostrar todos los formatos admitidos y todos los códigos detectados únicos
       const uniqueCodes = [];
       selectCodeEl.innerHTML = '';
       codesDetected.forEach(item => {
         if (
-          item.format === 'ean_13' &&
-          item.code.length === 13 &&
-          !uniqueCodes.find(c => c.code === item.code)
+          item.code &&
+          !uniqueCodes.find(c => c.code === item.code && c.format === item.format)
         ) {
           uniqueCodes.push(item);
           const opt = document.createElement('option');
@@ -176,16 +187,17 @@
       if (waitingForUser) {
         codesDetected.push({ code, format });
         updateSelectDetected();
-        log('Esperando acción del usuario, acumulando código: ' + code);
+        log('Esperando acción del usuario, acumulando código: ' + code + ' (' + format + ')');
         return;
       }
       codesDetected = [{ code, format }];
       updateSelectDetected();
-      setLast(code);
+      setLast(`${code} (${format})`);
       playBeep();
-      setStatus('Códigos EAN-13 detectados: selecciona el correcto y confirma.');
+      setStatus('Código detectado: selecciona el correcto y confirma.');
       waitingForUser = true;
       actionButtonsEl.style.display = 'flex';
+      log(`Detectado: ${code} (${format})`);
     }
 
     startBtn.onclick = () => {
@@ -206,10 +218,13 @@
           "ean_8_reader",      // EAN-8
           "upc_reader",        // UPC-A
           "upc_e_reader",      // UPC-E
-          "code_128_reader"    // Code128            
+          "code_128_reader",   // Code128
+          "code_39_reader",    // Code39
+          "codabar_reader",    // Codabar
+          "i2of5_reader"       // Interleaved 2 of 5
           ]
         },
-        locate: false,
+        locate: true,
         numOfWorkers: navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency - 1) : 2
       }, function (err) {
         if (err) { log('QuaggaJS init error: ' + JSON.stringify(err)); setStatus('Error QuaggaJS: ' + JSON.stringify(err)); return; }
@@ -220,7 +235,7 @@
         codesDetected = [];
         selectCodeEl.innerHTML = '';
         setLast('—');
-        setStatus('Cámara activa (QuaggaJS). Apunta al código.');
+        setStatus('Cámara activa (QuaggaJS). Apunta el código dentro del rectángulo rojo.');
         startBtn.disabled = true;
         stopBtn.disabled = false;
         actionButtonsEl.style.display = 'none';
@@ -230,7 +245,6 @@
         if (!result || !result.codeResult || !result.codeResult.code) return;
         const code = result.codeResult.code;
         const format = result.codeResult.format;
-        // Puedes aceptar todos los formatos aquí, o filtrar por longitud si quieres
         handleDetectedCode(code, format);
       });
     };
@@ -255,7 +269,7 @@
 
     nextCodeBtn.onclick = async () => {
       const selectedCode = selectCodeEl.value;
-      if (selectedCode && selectedCode.length === 13) {
+      if (selectedCode) {
         scannedCodes.push(selectedCode);
         renderCodesList();
         await sendCodeToBackend(selectedCode);
