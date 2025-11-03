@@ -2,7 +2,8 @@
 
 Sistema de punto de venta (POS) para gestionar ventas e inventario de Velykapet. El proyecto consta de un **frontend web** con escáner de códigos de barras y un **backend .NET** que gestiona el inventario y movimientos.
 
-<img src="https://github.com/angra8410/velykapet-pos/raw/main/.github/repo-structure.png" alt="Estructura del repositorio" width="600"/>
+<!-- Estructura del repositorio (imagen opcional) -->
+<!-- <img src="https://github.com/angra8410/velykapet-pos/raw/main/.github/repo-structure.png" alt="Estructura del repositorio" width="600"/> -->
 
 ## 🏗️ Arquitectura Actual
 
@@ -59,7 +60,8 @@ Estos archivos se mantienen en el repositorio por histórico, pero **NO** se usa
 ### Frontend (index.html)
 
 #### Opción 1: GitHub Pages (Recomendado para producción)
-1. El archivo ya está disponible en: `https://angra8410.github.io/velykapet-pos/`
+1. Si tienes GitHub Pages habilitado, el archivo estará disponible en: `https://<tu-usuario>.github.io/velykapet-pos/`
+   - Para este repositorio sería: `https://angra8410.github.io/velykapet-pos/`
 2. Abrirlo desde un navegador móvil (Chrome recomendado)
 3. Permitir acceso a la cámara cuando se solicite
 
@@ -111,7 +113,8 @@ ngrok http https://localhost:5001
 
 4. **Copiar la URL de ngrok** y actualizarla en `index.html`:
 ```javascript
-const WEBAPP_URL = 'https://tu-url-ngrok.ngrok-free.dev/api/inventory';
+const WEBAPP_URL = 'https://YOUR-NGROK-URL.ngrok-free.dev/api/inventory';
+// Ejemplo: 'https://abc123xyz.ngrok-free.dev/api/inventory'
 ```
 
 ### Configuración del Frontend
@@ -119,7 +122,8 @@ const WEBAPP_URL = 'https://tu-url-ngrok.ngrok-free.dev/api/inventory';
 Editar las siguientes variables en `index.html` según sea necesario:
 
 ```javascript
-const WEBAPP_URL = 'https://your-ngrok-url.ngrok-free.dev/api/inventory';
+const WEBAPP_URL = 'https://YOUR-NGROK-URL.ngrok-free.dev/api/inventory';
+// Ejemplo: 'https://abc123xyz.ngrok-free.dev/api/inventory'
 ```
 
 También se puede configurar desde la interfaz:
