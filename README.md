@@ -111,18 +111,16 @@ ngrok http 5001 --scheme https
 ngrok http https://localhost:5001
 ```
 
-4. **Copiar la URL de ngrok** y actualizarla en `index.html`:
-```javascript
-const WEBAPP_URL = 'https://YOUR-NGROK-URL.ngrok-free.dev/api/inventory';
-// Ejemplo: 'https://abc123xyz.ngrok-free.dev/api/inventory'
-```
+4. **Copiar la URL de ngrok** y actualizarla en `index.html` (ver sección "Configuración del Frontend" más abajo)
+
 
 ### Configuración del Frontend
 
-Editar las siguientes variables en `index.html` según sea necesario:
+Editar la URL del backend en `index.html` (línea ~100):
 
 ```javascript
 const WEBAPP_URL = 'https://YOUR-NGROK-URL.ngrok-free.dev/api/inventory';
+// Reemplazar YOUR-NGROK-URL con tu subdomain único de ngrok
 // Ejemplo: 'https://abc123xyz.ngrok-free.dev/api/inventory'
 ```
 
