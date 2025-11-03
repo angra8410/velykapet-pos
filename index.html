@@ -29,7 +29,7 @@
     button { padding:8px 20px; font-size:15px; border:1px solid #bbb; border-radius:4px; background:#f7f7f7; cursor:pointer;}
     button:disabled { background:#eaeaea; color:#888; cursor:not-allowed; border-color:#eee;}
     label { font-size:14px; color:#333; font-weight:500; margin-right:8px; display:flex; align-items:center;}
-    select, input[type="number"] { font-size:15px; padding:4px 8px; border-radius:4px; border:1px solid #ccc; margin-left:6px;}
+    select, input[type="number"], input[type="text"] { font-size:15px; padding:4px 8px; border-radius:4px; border:1px solid #ccc; margin-left:6px;}
     #action-buttons { display:none; flex-direction:row; justify-content:center; gap:24px; margin-bottom:16px; }
     #action-buttons button { padding:10px 24px; font-size:15px; font-weight:600; border-radius:6px; border:1.5px solid #666; background:#e7e7e7;}
     #status, #last, #log, footer { margin-bottom:10px; max-width:720px; margin-left:auto; margin-right:auto;}
@@ -39,6 +39,7 @@
     #log { padding:8px; border:1px solid #eee; background:#fafafa; max-height:220px; overflow:auto; font-family:monospace; font-size:13px; white-space:pre-wrap; border-radius:6px;}
     #select-camera { font-size:16px; padding:6px 12px; margin-right:12px; }
     #select-code { font-size:16px; padding:6px 12px; margin-right:12px; }
+    .product-manual {margin:16px 0;}
     footer { color:#666; font-size:13px; text-align:center; margin-top:15px; margin-bottom:24px;}
     @media (max-width:800px) {
       .main-wrap, #status, #last, #log, footer { max-width:95vw;}
@@ -77,6 +78,16 @@
       </label>
       <button id="beepBtn">Pitido ON</button>
     </div>
+    <!-- Campos obligatorios extra para envío a backend -->
+    <div class="product-manual">
+      <label for="inputSKU">SKU:</label>
+      <input type="text" id="inputSKU" required value="GEN123"><br>
+      <label for="inputNombre">Nombre:</label>
+      <input type="text" id="inputNombre" required value="Producto genérico"><br>
+      <label for="inputPrecio">Precio:</label>
+      <input type="number" id="inputPrecio" required value="1000"><br>
+    </div>
+
     <div id="action-buttons">
       <select id="select-code"></select>
       <button id="nextCodeBtn">Enviar código y leer otro</button>
@@ -116,6 +127,11 @@
     const actionButtonsEl = document.getElementById('action-buttons');
     const selectCodeEl = document.getElementById('select-code');
     const selectCameraEl = document.getElementById('select-camera');
+    // Nuevo: inputs para campos obligatorios backend
+    const inputSKU = document.getElementById('inputSKU');
+    const inputNombre = document.getElementById('inputNombre');
+    const inputPrecio = document.getElementById('inputPrecio');
+
     let beepOn = true;
     let sending = false;
     let waitingForUser = false;
@@ -170,7 +186,27 @@
     async function sendCodeToBackend(code) {
       const cantidad = Number(cantidadEl.value) || 1;
       const tipo = tipoEl.value || 'entrada';
-      const payload = { barcode: String(code), cantidad: cantidad, tipo: tipo, usuario: 'camera', token: TOKEN };
+      // Leer los valores de los inputs extras
+      const sku = inputSKU.value || "GEN123";
+      const nombre = inputNombre.value || "Producto generico";
+      const precio = inputPrecio.value || "1000";
+      // Validar antes de enviar
+      if (!sku || !nombre || !precio) {
+        log('¡Completa SKU, Nombre y Precio!');
+        alert('Por favor, llena todos los campos obligatorios antes de enviar.');
+        setStatus('Campos faltantes');
+        return;
+      }
+      const payload = {
+        barcode: String(code),
+        cantidad: cantidad,
+        tipo: tipo,
+        usuario: 'camera',
+        token: TOKEN,
+        sku: sku,
+        nombre: nombre,
+        precio: precio
+      };
       sending = true;
       setStatus('Enviando ' + code + ' ...');
       log('Enviando payload (form): ' + JSON.stringify(payload));
