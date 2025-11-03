@@ -143,15 +143,18 @@
       } catch (e) { log('Audio error: ' + e); }
     }
 
+    // --- CAMBIO SOLICITADO: fetch ahora envía JSON ---
     async function postMovementForm(payload, attempts = 2) {
       const url = WEBAPP_URL;
-      const params = new URLSearchParams();
-      for (const k in payload) if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k] !== undefined) params.append(k, String(payload[k]));
       let lastErr = null;
       for (let i = 1; i <= attempts; i++) {
         try {
           log('POST intento ' + i + ' a ' + url);
-          const res = await fetch(url, { method: 'POST', body: params, cache: 'no-store' });
+          const res = await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            headers: { "Content-Type": "application/json" }
+          });
           const text = await res.text();
           try { return JSON.parse(text); } catch (e) { return text; }
         } catch (err) {
@@ -162,6 +165,7 @@
       }
       throw lastErr;
     }
+    // --- FIN DEL CAMBIO ---
 
     async function sendCodeToBackend(code) {
       const cantidad = Number(cantidadEl.value) || 1;
