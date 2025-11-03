@@ -77,15 +77,12 @@
         <input id="cantidad" type="number" value="1" min="1" style="width:70px" />
       </label>
       <button id="beepBtn">Pitido ON</button>
-    </div>
-    <!-- Campos obligatorios extra para envío a backend -->
-    <div class="product-manual">
-      <label for="inputSKU">SKU:</label>
-      <input type="text" id="inputSKU" required value="GEN123"><br>
-      <label for="inputNombre">Nombre:</label>
-      <input type="text" id="inputNombre" required value="Producto genérico"><br>
-      <label for="inputPrecio">Precio:</label>
-      <input type="number" id="inputPrecio" required value="1000"><br>
+      <label>Usuario:
+        <input id="usuario" type="text" value="camera" style="width:110px;" />
+      </label>
+      <label>Token:
+        <input id="token" type="text" value="" style="width:110px;" />
+      </label>
     </div>
 
     <div id="action-buttons">
@@ -101,7 +98,6 @@
   </div>
   <script>
     const WEBAPP_URL = 'https://untrailered-wyatt-limpidly.ngrok-free.dev/api/inventory';
-    const TOKEN = '';
     const logEl = document.getElementById('log');
     function log(msg) {
       if (logEl) {
@@ -122,15 +118,13 @@
     const tipoEl = document.getElementById('tipo');
     const cantidadEl = document.getElementById('cantidad');
     const beepBtn = document.getElementById('beepBtn');
+    const usuarioEl = document.getElementById('usuario');
+    const tokenEl = document.getElementById('token');
     const nextCodeBtn = document.getElementById('nextCodeBtn');
     const finishBtn = document.getElementById('finishBtn');
     const actionButtonsEl = document.getElementById('action-buttons');
     const selectCodeEl = document.getElementById('select-code');
     const selectCameraEl = document.getElementById('select-camera');
-    // Nuevo: inputs para campos obligatorios backend
-    const inputSKU = document.getElementById('inputSKU');
-    const inputNombre = document.getElementById('inputNombre');
-    const inputPrecio = document.getElementById('inputPrecio');
 
     let beepOn = true;
     let sending = false;
@@ -186,26 +180,16 @@
     async function sendCodeToBackend(code) {
       const cantidad = Number(cantidadEl.value) || 1;
       const tipo = tipoEl.value || 'entrada';
-      // Leer los valores de los inputs extras
-      const sku = inputSKU.value || "GEN123";
-      const nombre = inputNombre.value || "Producto generico";
-      const precio = inputPrecio.value || "1000";
-      // Validar antes de enviar
-      if (!sku || !nombre || !precio) {
-        log('¡Completa SKU, Nombre y Precio!');
-        alert('Por favor, llena todos los campos obligatorios antes de enviar.');
-        setStatus('Campos faltantes');
-        return;
-      }
+      const usuario = usuarioEl.value || 'camera';
+      const token = tokenEl.value || '';
+      // Ya NO es necesario pedir sku, nombre, precio
+      // Solo enviar los datos que backend requiere, el resto se autocompleta desde Sheets   
       const payload = {
         barcode: String(code),
         cantidad: cantidad,
         tipo: tipo,
-        usuario: 'camera',
-        token: TOKEN,
-        sku: sku,
-        nombre: nombre,
-        precio: precio
+        usuario: usuario,
+        token: token
       };
       sending = true;
       setStatus('Enviando ' + code + ' ...');
