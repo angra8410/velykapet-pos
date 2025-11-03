@@ -11,7 +11,6 @@
     h2 { text-align:center; margin-bottom:32px; font-size:2rem; font-weight:600; }
     #video-box { width:100%; background:#000; border:1px solid #ddd; margin-bottom:24px; height:360px; overflow:hidden; border-radius:10px; position:relative;}
     #video { width:100%; height:100%; display:block; background:#000; object-fit:cover; border-radius:10px;}
-    /* Responsive scan-area: 80% width, 45% height, centered */
     #scan-area {
       position: absolute;
       left: 50%; top: 50%;
@@ -70,6 +69,7 @@
           <option value="entrada">entrada (sumar)</option>
           <option value="venta" selected>venta (restar)</option>
           <option value="ajuste">ajuste</option>
+          <option value="ingreso">ingreso</option>
         </select>
       </label>
       <label>Cantidad:
@@ -143,7 +143,7 @@
       } catch (e) { log('Audio error: ' + e); }
     }
 
-    // --- CAMBIO SOLICITADO: fetch ahora envía JSON ---
+    // --- fetch: envía JSON al backend ---
     async function postMovementForm(payload, attempts = 2) {
       const url = WEBAPP_URL;
       let lastErr = null;
@@ -165,7 +165,7 @@
       }
       throw lastErr;
     }
-    // --- FIN DEL CAMBIO ---
+    // --- FIN ---
 
     async function sendCodeToBackend(code) {
       const cantidad = Number(cantidadEl.value) || 1;
@@ -334,7 +334,6 @@
       }
     };
 
-    // Inicializa cámaras al cargar la página
     window.onload = setupCameras;
     log('✅ Listo');
   </script>
